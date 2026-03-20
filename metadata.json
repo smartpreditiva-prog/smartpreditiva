@@ -1,0 +1,5 @@
+{
+  "name": "Monitoramento de Equipamentos",
+  "description": "Dashboard para monitoramento em tempo real de bombas, exaustores e pressão de tubulação integrado com ESP32 e Supabase.",
+  "requestFramePermissions": []
+}
