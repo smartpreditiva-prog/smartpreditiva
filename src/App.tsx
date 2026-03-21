@@ -6,6 +6,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { Leitura, Equipment } from './types';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   Activity, 
   Thermometer, 
@@ -23,7 +25,8 @@ import {
   ChevronRight,
   Download,
   Calendar,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -38,7 +41,7 @@ import {
   Bar,
   Legend
 } from 'recharts';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const REFRESH_INTERVAL = 30000;
@@ -52,6 +55,7 @@ export default function App() {
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('day');
   
   // Dashboard filters
   const [dashFilters, setDashFilters] = useState({
@@ -65,6 +69,8 @@ export default function App() {
     start: format(subDays(new Date(), 7), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
   });
+  const [reportData, setReportData] = useState<Leitura[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const allAvailableEquipments = useMemo(() => {
     const registered = equipments.map(e => e.nome);
@@ -102,8 +108,28 @@ export default function App() {
 
   const fetchData = React.useCallback(async () => {
     try {
+      let query = supabase.from('leituras').select('*').order('timestamp', { ascending: false });
+      
+      const now = Math.floor(Date.now() / 1000);
+      let startTime = 0;
+      
+      if (timeRange === 'day') {
+        startTime = now - (24 * 60 * 60);
+        query = query.limit(500); // Limit for performance but enough for a day
+      } else if (timeRange === 'week') {
+        startTime = now - (7 * 24 * 60 * 60);
+        query = query.limit(2000);
+      } else if (timeRange === 'month') {
+        startTime = now - (30 * 24 * 60 * 60);
+        query = query.limit(5000);
+      }
+      
+      if (startTime > 0) {
+        query = query.gte('timestamp', startTime);
+      }
+
       const [leiturasRes, equipRes] = await Promise.all([
-        supabase.from('leituras').select('*').order('timestamp', { ascending: false }).limit(200),
+        query,
         supabase.from('equipamentos').select('*')
       ]);
 
@@ -152,7 +178,7 @@ export default function App() {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [fetchData]);
+  }, [fetchData, timeRange]);
 
   const equipmentStats = useMemo(() => {
     const stats: Record<string, { last?: Leitura, config?: Equipment }> = {};
@@ -253,9 +279,14 @@ export default function App() {
       const time = rawTime > 1000000000000 ? Math.floor(rawTime / 1000) : rawTime;
       
       if (!dataMap[time]) {
+        let displayTime = format(new Date(time * 1000), 'HH:mm');
+        if (timeRange !== 'day') {
+          displayTime = format(new Date(time * 1000), 'dd/MM HH:mm');
+        }
+        
         dataMap[time] = { 
           timestamp: time,
-          displayTime: format(new Date(time * 1000), 'HH:mm')
+          displayTime
         };
       }
       
@@ -495,6 +526,21 @@ export default function App() {
             <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
               <Activity className="text-emerald-500 w-5 h-5" /> Monitoramento de Ativos
             </h2>
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+              {(['day', 'week', 'month'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    timeRange === range 
+                      ? 'bg-white text-emerald-600 shadow-sm' 
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {range === 'day' ? '24h' : range === 'week' ? '7 Dias' : '30 Dias'}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2">
               {allAvailableEquipments.map((e, idx) => (
                 <button
@@ -828,9 +874,14 @@ export default function App() {
         return isNaN(n) ? null : n;
       };
 
+      let displayTime = format(new Date(time * 1000), 'HH:mm');
+      if (timeRange !== 'day') {
+        displayTime = format(new Date(time * 1000), 'dd/MM HH:mm');
+      }
+
       return {
         timestamp: time,
-        displayTime: format(new Date(time * 1000), 'HH:mm'),
+        displayTime,
         corrente: parseVal(l.corrente),
         temperatura: parseVal(l.temperatura),
         pressao: parseVal(l.pressao)
@@ -887,7 +938,24 @@ export default function App() {
 
         <div className="grid grid-cols-1 gap-8">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">Gráficos de Desempenho</h3>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Gráficos de Desempenho</h3>
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+                {(['day', 'week', 'month'] as const).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      timeRange === range 
+                        ? 'bg-white text-emerald-600 shadow-sm' 
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    {range === 'day' ? '24h' : range === 'week' ? '7 Dias' : '30 Dias'}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={detailChartData}>
@@ -963,6 +1031,60 @@ export default function App() {
     );
   };
 
+  const generateReport = async () => {
+    setIsGenerating(true);
+    try {
+      const startTimestamp = Math.floor(new Date(reportRange.start).getTime() / 1000);
+      const endTimestamp = Math.floor(new Date(reportRange.end + 'T23:59:59').getTime() / 1000);
+
+      const { data, error } = await supabase
+        .from('leituras')
+        .select('*')
+        .gte('timestamp', startTimestamp)
+        .lte('timestamp', endTimestamp)
+        .order('timestamp', { ascending: false });
+
+      if (error) throw error;
+      setReportData(data || []);
+    } catch (err) {
+      console.error('Erro ao gerar relatório:', err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const exportPDF = () => {
+    if (reportData.length === 0) return;
+
+    const doc = new jsPDF();
+    const tableData = reportData.map(l => {
+      const config = equipmentStats[l.equipamento || l.placa_id]?.config;
+      return [
+        format(new Date(l.timestamp * 1000), 'dd/MM/yyyy HH:mm'),
+        config?.localizacao || l.equipamento || l.placa_id,
+        l.corrente != null ? `${l.corrente.toFixed(2)}A` : '-',
+        l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '-',
+        l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '-'
+      ];
+    });
+
+    doc.setFontSize(18);
+    doc.text('Relatório de Monitoramento - Smart Predial', 14, 22);
+    doc.setFontSize(11);
+    doc.text(`Período: ${format(new Date(reportRange.start), 'dd/MM/yyyy')} a ${format(new Date(reportRange.end), 'dd/MM/yyyy')}`, 14, 30);
+
+    autoTable(doc, {
+      head: [['Data/Hora', 'Equipamento', 'Corrente', 'Temperatura', 'Pressão']],
+      body: tableData,
+      startY: 40,
+      theme: 'grid',
+      headStyles: { fillStyle: 'fill', fillColor: [16, 185, 129] },
+      styles: { fontSize: 8 }
+    });
+
+    doc.save(`relatorio_smart_predial_${reportRange.start}_${reportRange.end}.pdf`);
+  };
+
   const renderReports = () => (
     <div className="space-y-8">
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap gap-6 items-end">
@@ -984,13 +1106,75 @@ export default function App() {
             className="block w-full bg-slate-50 border-none rounded-xl text-sm font-medium p-3"
           />
         </div>
-        <button className="bg-[#1A1A1A] text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-black transition-colors">
-          <Calendar className="w-4 h-4" /> Gerar Relatório
+        <button 
+          onClick={generateReport}
+          disabled={isGenerating}
+          className="bg-[#1A1A1A] text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-black transition-colors disabled:opacity-50"
+        >
+          {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />} 
+          {isGenerating ? 'Gerando...' : 'Gerar Relatório'}
         </button>
-        <button className="bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-colors ml-auto">
+        <button 
+          onClick={exportPDF}
+          disabled={reportData.length === 0}
+          className="bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-colors ml-auto disabled:opacity-50"
+        >
           <Download className="w-4 h-4" /> Exportar PDF
         </button>
       </div>
+
+      {reportData.length > 0 && (
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-50">
+            <h3 className="font-bold text-slate-800">Dados do Relatório ({reportData.length} registros)</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data/Hora</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Equipamento</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Corrente</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Temperatura</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Pressão</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {reportData.slice(0, 100).map((l, i) => {
+                  const config = equipmentStats[l.equipamento || l.placa_id]?.config;
+                  return (
+                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-xs font-medium text-slate-500">
+                        {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-slate-700">{config?.localizacao || l.equipamento || l.placa_id}</span>
+                          <span className="text-[10px] font-mono text-slate-300">{l.equipamento || l.placa_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
+                        {l.corrente != null ? `${l.corrente.toFixed(1)}A` : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-right text-slate-600">
+                        {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-right text-slate-600">
+                        {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {reportData.length > 100 && (
+              <div className="p-4 text-center bg-slate-50">
+                <p className="text-xs text-slate-400 font-medium italic">Exibindo os primeiros 100 registros. Exporte o PDF para ver o relatório completo.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm lg:col-span-2">
