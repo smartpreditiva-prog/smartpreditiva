@@ -75,6 +75,9 @@ export default function App() {
         supabase.from('equipamentos').select('*')
       ]);
 
+      console.log('Leituras fetched:', leiturasRes.data?.length || 0);
+      console.log('Equipamentos fetched:', equipRes.data?.length || 0);
+
       if (leiturasRes.data) setLeituras(leiturasRes.data);
       if (equipRes.data) {
         setEquipments(equipRes.data);
@@ -117,9 +120,12 @@ export default function App() {
 
     // Add last readings
     leituras.forEach((l) => {
-      if (!stats[l.equipamento]) stats[l.equipamento] = {};
-      if (!stats[l.equipamento].last || l.timestamp > (stats[l.equipamento].last?.timestamp || 0)) {
-        stats[l.equipamento].last = l;
+      const name = l.equipamento || l.placa_id;
+      if (!name) return;
+      
+      if (!stats[name]) stats[name] = {};
+      if (!stats[name].last || l.timestamp > (stats[name].last?.timestamp || 0)) {
+        stats[name].last = l;
       }
     });
     
@@ -189,41 +195,110 @@ export default function App() {
     const sortedLeituras = [...leituras].sort((a, b) => a.timestamp - b.timestamp);
     
     sortedLeituras.forEach(l => {
-      const time = l.timestamp;
+      // Handle both seconds and milliseconds timestamps
+      const rawTime = l.timestamp;
+      const time = rawTime > 1000000000000 ? Math.floor(rawTime / 1000) : rawTime;
+      
       if (!dataMap[time]) {
         dataMap[time] = { 
           timestamp: time,
           displayTime: format(new Date(time * 1000), 'HH:mm')
         };
       }
-      // Use equipment name/location as the key for the value
-      const equipName = equipmentStats[l.equipamento]?.config?.localizacao || l.equipamento;
-      if (l.corrente !== undefined) dataMap[time][`corrente_${equipName}`] = l.corrente;
-      if (l.pressao !== undefined) dataMap[time][`pressao_${equipName}`] = l.pressao;
+      
+      // Use equipment ID (nome) or placa_id as the key
+      const id = l.equipamento || l.placa_id;
+      if (!id) return;
+
+      if (l.corrente != null) dataMap[time][`corrente_${id}`] = Number(l.corrente);
+      if (l.pressao != null) dataMap[time][`pressao_${id}`] = Number(l.pressao);
+      if (l.temperatura != null) dataMap[time][`temperatura_${id}`] = Number(l.temperatura);
     });
 
-    return Object.values(dataMap);
-  }, [leituras, equipmentStats]);
+    const result = Object.values(dataMap).sort((a: any, b: any) => a.timestamp - b.timestamp);
+    console.log('Chart Data points:', result.length);
+    return result;
+  }, [leituras]);
 
   const equipmentColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-  const renderDashboard = () => (
-    <div className="space-y-8 pb-20 lg:pb-0">
-      {/* Header with Quick Action */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-800">Visão Geral</h1>
-          <p className="text-sm text-slate-500 font-medium">Status atual de todos os ativos monitorados</p>
-        </div>
-        <button 
-          onClick={() => setView('equipment')}
-          className="bg-emerald-500 text-white px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
-        >
-          <Plus className="w-4 h-4" /> Gerenciar Equipamentos
-        </button>
-      </div>
+  const renderDashboard = () => {
+    const totalEquips = equipments.length;
+    const onlineEquips = Object.values(equipmentStats).filter(s => 
+      s.last && (Math.floor(Date.now() / 1000) - s.last.timestamp < 300)
+    ).length;
+    const offlineEquips = totalEquips - onlineEquips;
+    const alertsCount = Object.values(equipmentStats).filter(s => {
+      const reading = s.last;
+      const config = s.config;
+      const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
+      const isOverTemp = reading?.temperatura && config?.temperatura_maxima ? reading.temperatura > config.temperatura_maxima : false;
+      return isOverNominal || isOverTemp;
+    }).length;
 
-      {/* Filters Bar */}
+    return (
+      <div className="space-y-8 pb-20 lg:pb-0">
+        {/* Header with Quick Action */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">Monitoramento em Tempo Real</h1>
+            <p className="text-sm text-slate-500 font-medium">Status atual de todos os ativos monitorados</p>
+            {lastUpdate && (
+              <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Última atualização: {format(lastUpdate, 'HH:mm:ss')}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => fetchData()}
+              className="p-2.5 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-emerald-500 transition-colors shadow-sm"
+              title="Atualizar dados"
+            >
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button 
+              onClick={() => setView('equipment')}
+              className="bg-emerald-500 text-white px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+            >
+              <Plus className="w-4 h-4" /> Gerenciar Equipamentos
+            </button>
+          </div>
+        </div>
+
+        {/* Summary Stats */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total de Ativos</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter">{totalEquips}</span>
+              <span className="text-xs text-slate-400 font-bold">UNIDADES</span>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Online agora</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter text-emerald-500">{onlineEquips}</span>
+              <span className="text-xs text-emerald-400 font-bold">ATIVOS</span>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">Offline</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter text-rose-500">{offlineEquips}</span>
+              <span className="text-xs text-rose-400 font-bold">ATIVOS</span>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">Alertas Ativos</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter text-orange-500">{alertsCount}</span>
+              <span className="text-xs text-orange-400 font-bold">OCORRÊNCIAS</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Filters Bar */}
       <section className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-4">
         <div className="flex-1 min-w-[200px] relative">
           <Activity className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -265,73 +340,89 @@ export default function App() {
 
       {/* Status Overview */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {filteredStats.map(([name, data]: [string, any]) => {
-          const reading = data.last as Leitura | undefined;
-          const config = data.config as Equipment | undefined;
-          const isOnline = reading ? (Math.floor(Date.now() / 1000) - reading.timestamp < 300) : false;
-          const isOn = reading?.corrente ? reading.corrente > 0.5 : false;
-          const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
-          const isOverTemp = reading?.temperatura && config?.temperatura_maxima ? reading.temperatura > config.temperatura_maxima : false;
-
-          return (
-            <div 
-              key={name} 
-              className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => {
-                if (config) {
-                  setSelectedEquip(config);
-                  setView('equipment-detail');
-                }
-              }}
+        {filteredStats.length === 0 ? (
+          <div className="col-span-full bg-white p-12 rounded-3xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-center">
+            <div className="bg-slate-50 p-4 rounded-full mb-4">
+              <Activity className="w-8 h-8 text-slate-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Nenhum Ativo Monitorado</h3>
+            <p className="text-sm text-slate-500 max-w-xs">Cadastre seus equipamentos para começar a receber dados de monitoramento em tempo real.</p>
+            <button 
+              onClick={() => setView('equipment')}
+              className="mt-6 text-emerald-600 font-bold text-sm flex items-center gap-2 hover:underline"
             >
-              <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-xl ${isOn ? 'bg-emerald-50' : 'bg-slate-50'}`}>
-                  {name.toLowerCase().includes('bomba') ? <Droplets className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> : 
-                   name.toLowerCase().includes('exaustor') ? <Wind className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> :
-                   <Gauge className={isOn ? 'text-emerald-600' : 'text-slate-400'} />}
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                    <span className={`text-[10px] font-bold uppercase tracking-tighter ${isOnline ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {isOnline ? 'Online' : 'Offline'}
-                    </span>
+              <Plus className="w-4 h-4" /> Cadastrar Primeiro Equipamento
+            </button>
+          </div>
+        ) : (
+          filteredStats.map(([name, data]: [string, any]) => {
+            const reading = data.last as Leitura | undefined;
+            const config = data.config as Equipment | undefined;
+            const isOnline = reading ? (Math.floor(Date.now() / 1000) - reading.timestamp < 300) : false;
+            const isOn = reading?.corrente ? reading.corrente > 0.5 : false;
+            const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
+            const isOverTemp = reading?.temperatura && config?.temperatura_maxima ? reading.temperatura > config.temperatura_maxima : false;
+
+            return (
+              <div 
+                key={name} 
+                className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => {
+                  if (config) {
+                    setSelectedEquip(config);
+                    setView('equipment-detail');
+                  }
+                }}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className={`p-3 rounded-xl ${isOn ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    {name.toLowerCase().includes('bomba') ? <Droplets className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> : 
+                     name.toLowerCase().includes('exaustor') ? <Wind className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> :
+                     <Gauge className={isOn ? 'text-emerald-600' : 'text-slate-400'} />}
                   </div>
-                  {(isOverNominal || isOverTemp) && (
-                    <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                      <AlertCircle className="w-2 h-2" /> {isOverNominal ? 'SOBRECARGA' : 'ALTA TEMP.'}
-                    </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                      <span className={`text-[10px] font-bold uppercase tracking-tighter ${isOnline ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {isOnline ? 'Online' : 'Offline'}
+                      </span>
+                    </div>
+                    {(isOverNominal || isOverTemp) && (
+                      <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertCircle className="w-2 h-2" /> {isOverNominal ? 'SOBRECARGA' : 'ALTA TEMP.'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <h3 className="text-sm font-bold text-slate-800 capitalize mb-1">
+                  {config?.localizacao || name.replace(/_/g, ' ')}
+                </h3>
+                <p className="text-[10px] text-slate-400 font-medium uppercase mb-3">{config?.condominio || 'Não Cadastrado'}</p>
+                
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black tracking-tighter">
+                    {reading?.corrente != null ? `${reading.corrente.toFixed(1)}A` : 
+                     reading?.pressao != null ? `${reading.pressao.toFixed(2)}kgf` : '--'}
+                  </span>
+                  {config?.corrente_nominal && reading?.corrente != null && (
+                    <span className="text-[10px] text-slate-400 font-mono">/ {config.corrente_nominal}A nom.</span>
                   )}
                 </div>
-              </div>
-              
-              <h3 className="text-sm font-bold text-slate-800 capitalize mb-1">
-                {config?.localizacao || name.replace(/_/g, ' ')}
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium uppercase mb-3">{config?.condominio || 'Não Cadastrado'}</p>
-              
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black tracking-tighter">
-                  {reading?.corrente != null ? `${reading.corrente.toFixed(1)}A` : 
-                   reading?.pressao != null ? `${reading.pressao.toFixed(2)}kgf` : '--'}
-                </span>
-                {config?.corrente_nominal && reading?.corrente != null && (
-                  <span className="text-[10px] text-slate-400 font-mono">/ {config.corrente_nominal}A nom.</span>
-                )}
-              </div>
 
-              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
-                <div className="flex items-center gap-2 text-slate-500">
-                  <Thermometer className="w-3.5 h-3.5" />
-                  <span className="text-xs font-medium">{reading?.temperatura != null ? `${reading.temperatura.toFixed(1)}°C` : '--°C'}</span>
+                <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <Thermometer className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">{reading?.temperatura != null ? `${reading.temperatura.toFixed(1)}°C` : '--°C'}</span>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {isOn ? 'EM OPERAÇÃO' : 'DESLIGADO'}
+                  </span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {isOn ? 'EM OPERAÇÃO' : 'DESLIGADO'}
-                </span>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </section>
 
       {/* Charts Section */}
@@ -364,58 +455,103 @@ export default function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Corrente (A)</h3>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="displayTime" fontSize={10} />
-                    <YAxis fontSize={10} />
-                    <Tooltip />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                    {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
-                      <Area 
-                        key={e.id} 
-                        type="monotone" 
-                        dataKey={`corrente_${e.localizacao || e.nome}`} 
-                        name={e.localizacao || e.nome}
-                        stroke={equipmentColors[idx % equipmentColors.length]} 
-                        fill={`${equipmentColors[idx % equipmentColors.length]}22`} 
-                        strokeWidth={2} 
-                        connectNulls
-                      />
-                    ))}
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="h-[300px] relative">
+                {chartData.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de corrente</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} syncId="dashboard-charts">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="displayTime" fontSize={10} />
+                      <YAxis fontSize={10} />
+                      <Tooltip />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                      {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
+                        <Area 
+                          key={e.nome} 
+                          type="monotone" 
+                          dataKey={`corrente_${e.nome}`} 
+                          name={e.localizacao || e.nome}
+                          stroke={equipmentColors[idx % equipmentColors.length]} 
+                          fill={`${equipmentColors[idx % equipmentColors.length]}22`} 
+                          strokeWidth={2} 
+                          connectNulls
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Temperatura (°C)</h3>
+              <div className="h-[300px] relative">
+                {chartData.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de temperatura</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} syncId="dashboard-charts">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="displayTime" fontSize={10} />
+                      <YAxis fontSize={10} />
+                      <Tooltip />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                      {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
+                        <Area 
+                          key={e.nome} 
+                          type="monotone" 
+                          dataKey={`temperatura_${e.nome}`} 
+                          name={e.localizacao || e.nome}
+                          stroke={equipmentColors[(idx + 1) % equipmentColors.length]} 
+                          fill={`${equipmentColors[(idx + 1) % equipmentColors.length]}22`} 
+                          strokeWidth={2} 
+                          connectNulls
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
 
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Pressão (kgf/cm²)</h3>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="displayTime" fontSize={10} />
-                    <YAxis fontSize={10} />
-                    <Tooltip />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                    {equipments.filter(e => e.tipo === 'pressao' && selectedEquipments.includes(e.nome)).map((e, idx) => (
-                      <Area 
-                        key={e.id} 
-                        type="monotone" 
-                        dataKey={`pressao_${e.localizacao || e.nome}`} 
-                        name={e.localizacao || e.nome}
-                        stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
-                        fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
-                        strokeWidth={2} 
-                        connectNulls
-                      />
-                    ))}
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="h-[300px] relative">
+                {chartData.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de pressão</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} syncId="dashboard-charts">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="displayTime" fontSize={10} />
+                      <YAxis fontSize={10} />
+                      <Tooltip />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                      {equipments.filter(e => e.tipo === 'pressao' && selectedEquipments.includes(e.nome)).map((e, idx) => (
+                        <Area 
+                          key={e.nome} 
+                          type="monotone" 
+                          dataKey={`pressao_${e.nome}`} 
+                          name={e.localizacao || e.nome}
+                          stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
+                          fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
+                          strokeWidth={2} 
+                          connectNulls
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -442,44 +578,56 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {leituras.slice(0, 50).map((l, i) => (
-                <tr 
-                  key={i} 
-                  className="hover:bg-slate-50/50 transition-colors cursor-pointer"
-                  onClick={() => {
-                    const config = equipmentStats[l.equipamento]?.config;
-                    if (config) {
-                      setSelectedEquip(config);
-                      setView('equipment-detail');
-                    }
-                  }}
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-700">{equipmentStats[l.equipamento]?.config?.localizacao || l.equipamento}</span>
-                      <span className="text-[10px] font-mono text-slate-300">{l.equipamento}</span>
+              {leituras.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Clock className="w-8 h-8 text-slate-200" />
+                      <p className="text-sm font-medium text-slate-400">Aguardando primeiras leituras...</p>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-xs font-medium text-slate-500">
-                    {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
-                    {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
-                    {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
-                    {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
-                  </td>
                 </tr>
-              ))}
+              ) : (
+                leituras.slice(0, 50).map((l, i) => (
+                  <tr 
+                    key={i} 
+                    className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                    onClick={() => {
+                      const config = equipmentStats[l.equipamento]?.config;
+                      if (config) {
+                        setSelectedEquip(config);
+                        setView('equipment-detail');
+                      }
+                    }}
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-700">{equipmentStats[l.equipamento]?.config?.localizacao || l.equipamento}</span>
+                        <span className="text-[10px] font-mono text-slate-300">{l.equipamento}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-xs font-medium text-slate-500">
+                      {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
+                      {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
+                      {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
+                      {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </section>
     </div>
-  );
+    );
+  };
 
   const renderEquipment = () => (
     <div className="space-y-6">
@@ -591,20 +739,24 @@ export default function App() {
     if (!selectedEquip) return null;
     
     const equipLeituras = leituras
-      .filter(l => l.equipamento === selectedEquip.nome)
+      .filter(l => l.equipamento === selectedEquip.nome || l.placa_id === selectedEquip.nome)
       .sort((a, b) => a.timestamp - b.timestamp);
     
     const lastReading = equipmentStats[selectedEquip.nome]?.last;
     const isOnline = lastReading ? (Math.floor(Date.now() / 1000) - lastReading.timestamp < 300) : false;
     const isOn = lastReading?.corrente ? lastReading.corrente > 0.5 : false;
 
-    const detailChartData = equipLeituras.map(l => ({
-      timestamp: l.timestamp,
-      displayTime: format(new Date(l.timestamp * 1000), 'HH:mm'),
-      corrente: l.corrente,
-      temperatura: l.temperatura,
-      pressao: l.pressao
-    }));
+    const detailChartData = equipLeituras.map(l => {
+      const rawTime = l.timestamp;
+      const time = rawTime > 1000000000000 ? Math.floor(rawTime / 1000) : rawTime;
+      return {
+        timestamp: time,
+        displayTime: format(new Date(time * 1000), 'HH:mm'),
+        corrente: l.corrente != null ? Number(l.corrente) : null,
+        temperatura: l.temperatura != null ? Number(l.temperatura) : null,
+        pressao: l.pressao != null ? Number(l.pressao) : null
+      };
+    });
 
     return (
       <div className="space-y-8 pb-20 lg:pb-0">
@@ -691,27 +843,38 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {equipLeituras.slice().reverse().map((l, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 text-xs font-medium text-slate-500">
-                        {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
-                      </td>
-                      <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
-                        {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
-                      </td>
-                      <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
-                        {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
-                      </td>
-                      <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
-                        {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.corrente && l.corrente > 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {l.corrente && l.corrente > 0.5 ? 'LIGADO' : 'DESLIGADO'}
-                        </span>
+                  {equipLeituras.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Clock className="w-8 h-8 text-slate-200" />
+                          <p className="text-sm font-medium text-slate-400">Nenhum dado histórico encontrado para este ativo.</p>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    equipLeituras.slice().reverse().map((l, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 text-xs font-medium text-slate-500">
+                          {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
+                          {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
+                          {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
+                          {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.corrente && l.corrente > 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {l.corrente && l.corrente > 0.5 ? 'LIGADO' : 'DESLIGADO'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -805,7 +968,7 @@ export default function App() {
             onClick={() => setView('dashboard')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${view === 'dashboard' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-400 hover:bg-slate-50'}`}
           >
-            <LayoutDashboard className="w-5 h-5" /> Dashboard
+            <LayoutDashboard className="w-5 h-5" /> Monitoramento
           </button>
           <button 
             onClick={() => setView('equipment')}
