@@ -258,14 +258,21 @@ export default function App() {
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const dataToSave = {
+        ...newEquip,
+        corrente_nominal: isNaN(newEquip.corrente_nominal || 0) ? 0 : (newEquip.corrente_nominal || 0),
+        temperatura_maxima: isNaN(newEquip.temperatura_maxima || 0) ? 0 : (newEquip.temperatura_maxima || 0),
+        pressao_nominal: isNaN(newEquip.pressao_nominal || 0) ? 0 : (newEquip.pressao_nominal || 0),
+      };
+
       if (editingId) {
         const { error } = await supabase
           .from('equipamentos')
-          .update(newEquip)
+          .update(dataToSave)
           .eq('id', editingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('equipamentos').insert([newEquip]);
+        const { error } = await supabase.from('equipamentos').insert([dataToSave]);
         if (error) throw error;
       }
       setIsModalOpen(false);
@@ -361,11 +368,11 @@ export default function App() {
 
   const renderDashboard = () => {
     const totalEquips = equipments.length;
-    const onlineEquips = Object.values(equipmentStats).filter(s => 
+    const onlineEquips = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => 
       s.last && (Math.floor(Date.now() / 1000) - s.last.timestamp < 300)
     ).length;
     const offlineEquips = totalEquips - onlineEquips;
-    const alertsCount = Object.values(equipmentStats).filter(s => {
+    const alertsCount = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => {
       const reading = s.last;
       const config = s.config;
       const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
@@ -873,11 +880,24 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
-                <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
+                <input 
+                  type="number" 
+                  step="0.1" 
+                  value={isNaN(newEquip.corrente_nominal as number) ? '' : newEquip.corrente_nominal} 
+                  onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} 
+                  className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" 
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
-                <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
+                <input 
+                  type="number" 
+                  step="0.1" 
+                  value={isNaN(newEquip.temperatura_maxima as number) ? '' : newEquip.temperatura_maxima} 
+                  onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} 
+                  className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" 
+                  placeholder="Ex: 60" 
+                />
               </div>
               <div className="md:col-span-2 flex gap-4 mt-4">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -1166,7 +1186,7 @@ export default function App() {
       body: tableData,
       startY: 40,
       theme: 'grid',
-      headStyles: { fillStyle: 'fill', fillColor: [16, 185, 129] },
+      headStyles: { fillColor: [16, 185, 129] },
       styles: { fontSize: 8 }
     });
 
