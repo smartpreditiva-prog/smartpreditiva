@@ -242,6 +242,7 @@ export default function App() {
   };
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newEquip, setNewEquip] = useState<Partial<Equipment>>({
     nome: '',
     tipo: 'bomba_recalque',
@@ -254,16 +255,58 @@ export default function App() {
     temperatura_maxima: 0
   });
 
-  const handleAddEquipment = async (e: React.FormEvent) => {
+  const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { error } = await supabase.from('equipamentos').insert([newEquip]);
-      if (error) throw error;
+      if (editingId) {
+        const { error } = await supabase
+          .from('equipamentos')
+          .update(newEquip)
+          .eq('id', editingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('equipamentos').insert([newEquip]);
+        if (error) throw error;
+      }
       setIsModalOpen(false);
+      setEditingId(null);
+      setNewEquip({
+        nome: '',
+        tipo: 'bomba_recalque',
+        condominio: '',
+        localizacao: '',
+        fabricante: '',
+        modelo: '',
+        corrente_nominal: 0,
+        pressao_nominal: 0,
+        temperatura_maxima: 0
+      });
+      fetchData();
+    } catch (err: any) {
+      console.error('Erro ao salvar equipamento:', err);
+      if (err.code === '23505') {
+        alert('Erro: O ID da Placa já está cadastrado para outro equipamento.');
+      } else {
+        alert('Erro ao salvar equipamento. Verifique os dados e tente novamente.');
+      }
+    }
+  };
+
+  const handleEditEquipment = (equip: Equipment) => {
+    setNewEquip(equip);
+    setEditingId(equip.id);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    if (!window.confirm('Tem certeza que deseja excluir este equipamento?')) return;
+    try {
+      const { error } = await supabase.from('equipamentos').delete().eq('id', id);
+      if (error) throw error;
       fetchData();
     } catch (err) {
-      console.error('Erro ao adicionar equipamento:', err);
-      alert('Erro ao salvar equipamento. Verifique se o ID da Placa já existe.');
+      console.error('Erro ao excluir equipamento:', err);
+      alert('Erro ao excluir equipamento.');
     }
   };
 
@@ -465,6 +508,21 @@ export default function App() {
                   if (config) {
                     setSelectedEquip(config);
                     setView('equipment-detail');
+                  } else {
+                    setNewEquip({
+                      nome: name,
+                      tipo: 'bomba_recalque',
+                      condominio: '',
+                      localizacao: '',
+                      fabricante: '',
+                      modelo: '',
+                      corrente_nominal: 0,
+                      pressao_nominal: 0,
+                      temperatura_maxima: 0
+                    });
+                    setEditingId(null);
+                    setView('equipment');
+                    setIsModalOpen(true);
                   }
                 }}
               >
@@ -475,6 +533,11 @@ export default function App() {
                      <Gauge className={isOn ? 'text-emerald-600' : 'text-slate-400'} />}
                   </div>
                   <div className="flex flex-col items-end gap-1">
+                    {!config && (
+                      <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded-full mb-1">
+                        NÃO CADASTRADO
+                      </span>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
                       <span className={`text-[10px] font-bold uppercase tracking-tighter ${isOnline ? 'text-emerald-500' : 'text-rose-500'}`}>
@@ -763,12 +826,26 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden">
             <div className="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold">Cadastrar Novo Ativo</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-lg font-bold">{editingId ? 'Editar Ativo' : 'Cadastrar Novo Ativo'}</h3>
+              <button onClick={() => { 
+                setIsModalOpen(false); 
+                setEditingId(null); 
+                setNewEquip({
+                  nome: '',
+                  tipo: 'bomba_recalque',
+                  condominio: '',
+                  localizacao: '',
+                  fabricante: '',
+                  modelo: '',
+                  corrente_nominal: 0,
+                  pressao_nominal: 0,
+                  temperatura_maxima: 0
+                });
+              }} className="text-slate-400 hover:text-slate-600">
                 <AlertCircle className="w-6 h-6 rotate-45" />
               </button>
             </div>
-            <form onSubmit={handleAddEquipment} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleSaveEquipment} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID da Placa (CT-XXXX)</label>
                 <input required value={newEquip.nome} onChange={e => setNewEquip({...newEquip, nome: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: CT-0001" />
@@ -842,8 +919,19 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 transition-colors">
+              <button 
+                onClick={() => handleEditEquipment(e)}
+                className="p-2 hover:bg-emerald-50 rounded-lg text-emerald-600 transition-colors"
+                title="Editar"
+              >
                 <Settings className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => handleDeleteEquipment(e.id)}
+                className="p-2 hover:bg-rose-50 rounded-lg text-rose-600 transition-colors"
+                title="Excluir"
+              >
+                <AlertCircle className="w-5 h-5" />
               </button>
               <ChevronRight className="text-slate-300" />
             </div>
