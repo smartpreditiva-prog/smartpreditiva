@@ -66,33 +66,77 @@ export default function App() {
     end: format(new Date(), 'yyyy-MM-dd')
   });
 
+  const allAvailableEquipments = useMemo(() => {
+    const registered = equipments.map(e => e.nome);
+    const fromLeituras = new Set<string>();
+    leituras.forEach(l => {
+      const id = l.equipamento || l.placa_id;
+      if (id) {
+        const config = equipments.find(e => e.nome === id || e.id === id);
+        fromLeituras.add(config ? config.nome : id);
+      }
+    });
+    
+    const all = [...equipments];
+    fromLeituras.forEach(id => {
+      if (!registered.includes(id)) {
+        all.push({
+          id: id,
+          nome: id,
+          localizacao: `Dispositivo ${id}`,
+          tipo: 'desconhecido',
+          condominio: 'Não Cadastrado',
+          fabricante: '',
+          modelo: '',
+          corrente_nominal: 0,
+          pressao_nominal: 0,
+          temperatura_maxima: 0,
+          data_instalacao: ''
+        });
+      }
+    });
+    return all;
+  }, [equipments, leituras]);
+
   const [selectedEquipments, setSelectedEquipments] = useState<string[]>([]);
 
-  const fetchData = async () => {
+  const fetchData = React.useCallback(async () => {
     try {
       const [leiturasRes, equipRes] = await Promise.all([
         supabase.from('leituras').select('*').order('timestamp', { ascending: false }).limit(200),
         supabase.from('equipamentos').select('*')
       ]);
 
-      console.log('Leituras fetched:', leiturasRes.data?.length || 0);
-      console.log('Equipamentos fetched:', equipRes.data?.length || 0);
-
       if (leiturasRes.data) setLeituras(leiturasRes.data);
       if (equipRes.data) {
         setEquipments(equipRes.data);
-        // Initialize selection if empty
-        if (selectedEquipments.length === 0 && equipRes.data.length > 0) {
-          setSelectedEquipments(equipRes.data.map(e => e.nome));
-        }
       }
+      
+      // Initialize selection if empty, including unregistered devices found in readings
+      setSelectedEquipments(prev => {
+        if (prev.length === 0) {
+          const registered = (equipRes.data || []).map(e => e.nome);
+          const fromLeituras = new Set<string>();
+          (leiturasRes.data || []).forEach(l => {
+            const id = l.equipamento || l.placa_id;
+            if (id) {
+              const config = (equipRes.data || []).find(e => e.nome === id || e.id === id);
+              fromLeituras.add(config ? config.nome : id);
+            }
+          });
+          const all = Array.from(new Set([...registered, ...fromLeituras]));
+          return all;
+        }
+        return prev;
+      });
+      
       setLastUpdate(new Date());
     } catch (err) {
       console.error('Erro ao buscar dados:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -108,7 +152,7 @@ export default function App() {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchData]);
 
   const equipmentStats = useMemo(() => {
     const stats: Record<string, { last?: Leitura, config?: Equipment }> = {};
@@ -120,12 +164,21 @@ export default function App() {
 
     // Add last readings
     leituras.forEach((l) => {
-      const name = l.equipamento || l.placa_id;
-      if (!name) return;
+      const id = l.equipamento || l.placa_id;
+      if (!id) return;
+      
+      // Find the equipment config to get its 'nome' (ID Placa)
+      const config = equipments.find(e => e.nome === id || e.id === id);
+      const name = config ? config.nome : id;
       
       if (!stats[name]) stats[name] = {};
       if (!stats[name].last || l.timestamp > (stats[name].last?.timestamp || 0)) {
         stats[name].last = l;
+      }
+      
+      // Also store under the raw ID if it's different from the name
+      if (config && config.id !== name) {
+        stats[config.id] = stats[name];
       }
     });
     
@@ -210,9 +263,19 @@ export default function App() {
       const id = l.equipamento || l.placa_id;
       if (!id) return;
 
-      if (l.corrente != null) dataMap[time][`corrente_${id}`] = Number(l.corrente);
-      if (l.pressao != null) dataMap[time][`pressao_${id}`] = Number(l.pressao);
-      if (l.temperatura != null) dataMap[time][`temperatura_${id}`] = Number(l.temperatura);
+      // Find the equipment config to get its 'nome' (ID Placa)
+      const config = equipments.find(e => e.nome === id || e.id === id);
+      const keyId = config ? config.nome : id;
+
+      const parseVal = (v: any) => {
+        if (v == null) return null;
+        const n = Number(String(v).replace(',', '.'));
+        return isNaN(n) ? null : n;
+      };
+
+      if (l.corrente != null) dataMap[time][`corrente_${keyId}`] = parseVal(l.corrente);
+      if (l.pressao != null) dataMap[time][`pressao_${keyId}`] = parseVal(l.pressao);
+      if (l.temperatura != null) dataMap[time][`temperatura_${keyId}`] = parseVal(l.temperatura);
     });
 
     const result = Object.values(dataMap).sort((a: any, b: any) => a.timestamp - b.timestamp);
@@ -433,7 +496,7 @@ export default function App() {
               <Activity className="text-emerald-500 w-5 h-5" /> Monitoramento de Ativos
             </h2>
             <div className="flex flex-wrap gap-2">
-              {equipments.map((e, idx) => (
+              {allAvailableEquipments.map((e, idx) => (
                 <button
                   key={e.id}
                   onClick={() => {
@@ -467,11 +530,13 @@ export default function App() {
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} syncId="dashboard-charts">
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="displayTime" fontSize={10} />
-                      <YAxis fontSize={10} />
-                      <Tooltip />
-                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                      {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
+                      <XAxis dataKey="displayTime" fontSize={10} tick={{ fill: '#94a3b8' }} />
+                      <YAxis fontSize={10} tick={{ fill: '#94a3b8' }} domain={[0, 'auto']} allowDecimals={true} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '10px' }} />
+                      {allAvailableEquipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
                         <Area 
                           key={e.nome} 
                           type="monotone" 
@@ -479,8 +544,9 @@ export default function App() {
                           name={e.localizacao || e.nome}
                           stroke={equipmentColors[idx % equipmentColors.length]} 
                           fill={`${equipmentColors[idx % equipmentColors.length]}22`} 
-                          strokeWidth={2} 
+                          strokeWidth={2.5} 
                           connectNulls
+                          animationDuration={500}
                         />
                       ))}
                     </AreaChart>
@@ -500,11 +566,13 @@ export default function App() {
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} syncId="dashboard-charts">
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="displayTime" fontSize={10} />
-                      <YAxis fontSize={10} />
-                      <Tooltip />
-                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                      {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
+                      <XAxis dataKey="displayTime" fontSize={10} tick={{ fill: '#94a3b8' }} />
+                      <YAxis fontSize={10} tick={{ fill: '#94a3b8' }} domain={['auto', 'auto']} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '10px' }} />
+                      {allAvailableEquipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
                         <Area 
                           key={e.nome} 
                           type="monotone" 
@@ -512,8 +580,9 @@ export default function App() {
                           name={e.localizacao || e.nome}
                           stroke={equipmentColors[(idx + 1) % equipmentColors.length]} 
                           fill={`${equipmentColors[(idx + 1) % equipmentColors.length]}22`} 
-                          strokeWidth={2} 
+                          strokeWidth={2.5} 
                           connectNulls
+                          animationDuration={500}
                         />
                       ))}
                     </AreaChart>
@@ -533,11 +602,13 @@ export default function App() {
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} syncId="dashboard-charts">
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="displayTime" fontSize={10} />
-                      <YAxis fontSize={10} />
-                      <Tooltip />
-                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                      {equipments.filter(e => e.tipo === 'pressao' && selectedEquipments.includes(e.nome)).map((e, idx) => (
+                      <XAxis dataKey="displayTime" fontSize={10} tick={{ fill: '#94a3b8' }} />
+                      <YAxis fontSize={10} tick={{ fill: '#94a3b8' }} domain={[0, 'auto']} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '10px' }} />
+                      {allAvailableEquipments.filter(e => (e.tipo === 'pressao' || e.tipo === 'desconhecido') && selectedEquipments.includes(e.nome)).map((e, idx) => (
                         <Area 
                           key={e.nome} 
                           type="monotone" 
@@ -545,8 +616,9 @@ export default function App() {
                           name={e.localizacao || e.nome}
                           stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
                           fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
-                          strokeWidth={2} 
+                          strokeWidth={2.5} 
                           connectNulls
+                          animationDuration={500}
                         />
                       ))}
                     </AreaChart>
@@ -739,7 +811,7 @@ export default function App() {
     if (!selectedEquip) return null;
     
     const equipLeituras = leituras
-      .filter(l => l.equipamento === selectedEquip.nome || l.placa_id === selectedEquip.nome)
+      .filter(l => l.equipamento === selectedEquip.nome || l.placa_id === selectedEquip.nome || l.equipamento === selectedEquip.id)
       .sort((a, b) => a.timestamp - b.timestamp);
     
     const lastReading = equipmentStats[selectedEquip.nome]?.last;
@@ -749,12 +821,19 @@ export default function App() {
     const detailChartData = equipLeituras.map(l => {
       const rawTime = l.timestamp;
       const time = rawTime > 1000000000000 ? Math.floor(rawTime / 1000) : rawTime;
+      
+      const parseVal = (v: any) => {
+        if (v == null) return null;
+        const n = Number(String(v).replace(',', '.'));
+        return isNaN(n) ? null : n;
+      };
+
       return {
         timestamp: time,
         displayTime: format(new Date(time * 1000), 'HH:mm'),
-        corrente: l.corrente != null ? Number(l.corrente) : null,
-        temperatura: l.temperatura != null ? Number(l.temperatura) : null,
-        pressao: l.pressao != null ? Number(l.pressao) : null
+        corrente: parseVal(l.corrente),
+        temperatura: parseVal(l.temperatura),
+        pressao: parseVal(l.pressao)
       };
     });
 
