@@ -22,7 +22,8 @@ import {
   Plus,
   ChevronRight,
   Download,
-  Calendar
+  Calendar,
+  ArrowLeft
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -42,20 +43,30 @@ import { ptBR } from 'date-fns/locale';
 
 const REFRESH_INTERVAL = 30000;
 
-type View = 'dashboard' | 'equipment' | 'reports';
+type View = 'dashboard' | 'equipment' | 'reports' | 'equipment-detail';
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
+  const [selectedEquip, setSelectedEquip] = useState<Equipment | null>(null);
   const [leituras, setLeituras] = useState<Leitura[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   
+  // Dashboard filters
+  const [dashFilters, setDashFilters] = useState({
+    condominio: 'Todos',
+    tipo: 'Todos',
+    search: ''
+  });
+
   // Report filters
   const [reportRange, setReportRange] = useState({
     start: format(subDays(new Date(), 7), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
   });
+
+  const [selectedEquipments, setSelectedEquipments] = useState<string[]>([]);
 
   const fetchData = async () => {
     try {
@@ -65,7 +76,13 @@ export default function App() {
       ]);
 
       if (leiturasRes.data) setLeituras(leiturasRes.data);
-      if (equipRes.data) setEquipments(equipRes.data);
+      if (equipRes.data) {
+        setEquipments(equipRes.data);
+        // Initialize selection if empty
+        if (selectedEquipments.length === 0 && equipRes.data.length > 0) {
+          setSelectedEquipments(equipRes.data.map(e => e.nome));
+        }
+      }
       setLastUpdate(new Date());
     } catch (err) {
       console.error('Erro ao buscar dados:', err);
@@ -109,6 +126,24 @@ export default function App() {
     return stats;
   }, [leituras, equipments]);
 
+  const condominios = useMemo(() => {
+    const set = new Set(equipments.map(e => e.condominio).filter(Boolean));
+    return ['Todos', ...Array.from(set)];
+  }, [equipments]);
+
+  const filteredStats = useMemo(() => {
+    return Object.entries(equipmentStats).filter(([name, data]) => {
+      const { config } = data as { last?: Leitura, config?: Equipment };
+      const matchesCondo = dashFilters.condominio === 'Todos' || config?.condominio === dashFilters.condominio;
+      const matchesTipo = dashFilters.tipo === 'Todos' || config?.tipo === dashFilters.tipo;
+      const matchesSearch = !dashFilters.search || 
+        (config?.localizacao || '').toLowerCase().includes(dashFilters.search.toLowerCase()) ||
+        name.toLowerCase().includes(dashFilters.search.toLowerCase());
+      
+      return matchesCondo && matchesTipo && matchesSearch;
+    });
+  }, [equipmentStats, dashFilters]);
+
   const getStatusColor = (reading?: Leitura) => {
     if (!reading) return 'text-slate-400';
     const now = Math.floor(Date.now() / 1000);
@@ -130,7 +165,8 @@ export default function App() {
     fabricante: '',
     modelo: '',
     corrente_nominal: 0,
-    pressao_nominal: 0
+    pressao_nominal: 0,
+    temperatura_maxima: 0
   });
 
   const handleAddEquipment = async (e: React.FormEvent) => {
@@ -172,18 +208,82 @@ export default function App() {
   const equipmentColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   const renderDashboard = () => (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20 lg:pb-0">
+      {/* Header with Quick Action */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-800">Visão Geral</h1>
+          <p className="text-sm text-slate-500 font-medium">Status atual de todos os ativos monitorados</p>
+        </div>
+        <button 
+          onClick={() => setView('equipment')}
+          className="bg-emerald-500 text-white px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+        >
+          <Plus className="w-4 h-4" /> Gerenciar Equipamentos
+        </button>
+      </div>
+
+      {/* Filters Bar */}
+      <section className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-4">
+        <div className="flex-1 min-w-[200px] relative">
+          <Activity className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input 
+            type="text"
+            placeholder="Buscar equipamento..."
+            value={dashFilters.search}
+            onChange={(e) => setDashFilters(prev => ({ ...prev, search: e.target.value }))}
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20"
+          />
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Condomínio:</span>
+          <select 
+            value={dashFilters.condominio}
+            onChange={(e) => setDashFilters(prev => ({ ...prev, condominio: e.target.value }))}
+            className="bg-slate-50 border-none rounded-xl text-xs font-bold py-2 px-3 focus:ring-0"
+          >
+            {condominios.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo:</span>
+          <select 
+            value={dashFilters.tipo}
+            onChange={(e) => setDashFilters(prev => ({ ...prev, tipo: e.target.value }))}
+            className="bg-slate-50 border-none rounded-xl text-xs font-bold py-2 px-3 focus:ring-0"
+          >
+            <option value="Todos">Todos os Tipos</option>
+            <option value="bomba_recalque">Bomba Recalque</option>
+            <option value="bomba_piscina">Bomba Piscina</option>
+            <option value="exaustor">Exaustor</option>
+            <option value="pressao">Pressão</option>
+          </select>
+        </div>
+      </section>
+
       {/* Status Overview */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Object.entries(equipmentStats).map(([name, data]: [string, any]) => {
+        {filteredStats.map(([name, data]: [string, any]) => {
           const reading = data.last as Leitura | undefined;
           const config = data.config as Equipment | undefined;
           const isOnline = reading ? (Math.floor(Date.now() / 1000) - reading.timestamp < 300) : false;
           const isOn = reading?.corrente ? reading.corrente > 0.5 : false;
           const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
+          const isOverTemp = reading?.temperatura && config?.temperatura_maxima ? reading.temperatura > config.temperatura_maxima : false;
 
           return (
-            <div key={name} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+            <div 
+              key={name} 
+              className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => {
+                if (config) {
+                  setSelectedEquip(config);
+                  setView('equipment-detail');
+                }
+              }}
+            >
               <div className="flex justify-between items-start mb-4">
                 <div className={`p-3 rounded-xl ${isOn ? 'bg-emerald-50' : 'bg-slate-50'}`}>
                   {name.toLowerCase().includes('bomba') ? <Droplets className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> : 
@@ -197,9 +297,9 @@ export default function App() {
                       {isOnline ? 'Online' : 'Offline'}
                     </span>
                   </div>
-                  {isOverNominal && (
+                  {(isOverNominal || isOverTemp) && (
                     <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                      <AlertCircle className="w-2 h-2" /> SOBRECARGA
+                      <AlertCircle className="w-2 h-2" /> {isOverNominal ? 'SOBRECARGA' : 'ALTA TEMP.'}
                     </span>
                   )}
                 </div>
@@ -235,62 +335,89 @@ export default function App() {
       </section>
 
       {/* Charts Section */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <section className="space-y-6">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-          <h2 className="text-lg font-bold tracking-tight mb-6 flex items-center gap-2">
-            <Activity className="text-emerald-500 w-5 h-5" /> Monitoramento de Corrente (A)
-          </h2>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="displayTime" fontSize={10} />
-                <YAxis fontSize={10} />
-                <Tooltip />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                {equipments.map((e, idx) => (
-                  <Area 
-                    key={e.id} 
-                    type="monotone" 
-                    dataKey={`corrente_${e.localizacao}`} 
-                    name={e.localizacao}
-                    stroke={equipmentColors[idx % equipmentColors.length]} 
-                    fill={`${equipmentColors[idx % equipmentColors.length]}22`} 
-                    strokeWidth={2} 
-                    connectNulls
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
+              <Activity className="text-emerald-500 w-5 h-5" /> Monitoramento de Ativos
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {equipments.map((e, idx) => (
+                <button
+                  key={e.id}
+                  onClick={() => {
+                    setSelectedEquipments(prev => 
+                      prev.includes(e.nome) 
+                        ? prev.filter(id => id !== e.nome)
+                        : [...prev, e.nome]
+                    );
+                  }}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all border ${
+                    selectedEquipments.includes(e.nome)
+                      ? 'bg-emerald-500 text-white border-emerald-500'
+                      : 'bg-white text-slate-400 border-slate-200 hover:border-emerald-200'
+                  }`}
+                >
+                  {e.localizacao}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-          <h2 className="text-lg font-bold tracking-tight mb-6 flex items-center gap-2">
-            <Gauge className="text-blue-500 w-5 h-5" /> Pressão da Rede (kgf/cm²)
-          </h2>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="displayTime" fontSize={10} />
-                <YAxis fontSize={10} />
-                <Tooltip />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                {equipments.filter(e => e.tipo === 'pressao').map((e, idx) => (
-                  <Area 
-                    key={e.id} 
-                    type="monotone" 
-                    dataKey={`pressao_${e.localizacao}`} 
-                    name={e.localizacao}
-                    stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
-                    fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
-                    strokeWidth={2} 
-                    connectNulls
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="space-y-4">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Corrente (A)</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="displayTime" fontSize={10} />
+                    <YAxis fontSize={10} />
+                    <Tooltip />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                    {equipments.filter(e => selectedEquipments.includes(e.nome)).map((e, idx) => (
+                      <Area 
+                        key={e.id} 
+                        type="monotone" 
+                        dataKey={`corrente_${e.localizacao || e.nome}`} 
+                        name={e.localizacao || e.nome}
+                        stroke={equipmentColors[idx % equipmentColors.length]} 
+                        fill={`${equipmentColors[idx % equipmentColors.length]}22`} 
+                        strokeWidth={2} 
+                        connectNulls
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Pressão (kgf/cm²)</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="displayTime" fontSize={10} />
+                    <YAxis fontSize={10} />
+                    <Tooltip />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                    {equipments.filter(e => e.tipo === 'pressao' && selectedEquipments.includes(e.nome)).map((e, idx) => (
+                      <Area 
+                        key={e.id} 
+                        type="monotone" 
+                        dataKey={`pressao_${e.localizacao || e.nome}`} 
+                        name={e.localizacao || e.nome}
+                        stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
+                        fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
+                        strokeWidth={2} 
+                        connectNulls
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -316,7 +443,17 @@ export default function App() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {leituras.slice(0, 50).map((l, i) => (
-                <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                <tr 
+                  key={i} 
+                  className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                  onClick={() => {
+                    const config = equipmentStats[l.equipamento]?.config;
+                    if (config) {
+                      setSelectedEquip(config);
+                      setView('equipment-detail');
+                    }
+                  }}
+                >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-slate-700">{equipmentStats[l.equipamento]?.config?.localizacao || l.equipamento}</span>
@@ -395,6 +532,10 @@ export default function App() {
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
                 <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
               </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
+                <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
+              </div>
               <div className="md:col-span-2 flex gap-4 mt-4">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors">Cancelar</button>
                 <button type="submit" className="flex-1 bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-colors">Salvar Equipamento</button>
@@ -420,6 +561,10 @@ export default function App() {
                     <p className="text-sm font-bold">{e.corrente_nominal} A</p>
                   </div>
                   <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temp. Máxima</p>
+                    <p className="text-sm font-bold">{e.temperatura_maxima} °C</p>
+                  </div>
+                  <div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pressão Nominal</p>
                     <p className="text-sm font-bold">{e.pressao_nominal} kgf</p>
                   </div>
@@ -441,6 +586,140 @@ export default function App() {
       </div>
     </div>
   );
+
+  const renderEquipmentDetail = () => {
+    if (!selectedEquip) return null;
+    
+    const equipLeituras = leituras
+      .filter(l => l.equipamento === selectedEquip.nome)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    
+    const lastReading = equipmentStats[selectedEquip.nome]?.last;
+    const isOnline = lastReading ? (Math.floor(Date.now() / 1000) - lastReading.timestamp < 300) : false;
+    const isOn = lastReading?.corrente ? lastReading.corrente > 0.5 : false;
+
+    const detailChartData = equipLeituras.map(l => ({
+      timestamp: l.timestamp,
+      displayTime: format(new Date(l.timestamp * 1000), 'HH:mm'),
+      corrente: l.corrente,
+      temperatura: l.temperatura,
+      pressao: l.pressao
+    }));
+
+    return (
+      <div className="space-y-8 pb-20 lg:pb-0">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setView('dashboard')}
+            className="p-2 hover:bg-white rounded-xl transition-colors text-slate-400"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">{selectedEquip.localizacao}</h1>
+            <p className="text-sm text-slate-500 font-medium">{selectedEquip.condominio} • {selectedEquip.nome}</p>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              {isOnline ? 'Online' : 'Offline'}
+            </div>
+            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isOn ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              {isOn ? 'Em Operação' : 'Desligado'}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Corrente Atual</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter">{lastReading?.corrente?.toFixed(2) || '0.00'}A</span>
+              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.corrente_nominal}A nom.</span>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Temperatura</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter">{lastReading?.temperatura?.toFixed(1) || '0.0'}°C</span>
+              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.temperatura_maxima}°C máx.</span>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pressão</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black tracking-tighter">{lastReading?.pressao?.toFixed(2) || '0.00'}kgf</span>
+              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.pressao_nominal}kgf nom.</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-8">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">Gráficos de Desempenho</h3>
+            <div className="h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={detailChartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="displayTime" fontSize={10} />
+                  <YAxis fontSize={10} />
+                  <Tooltip />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                  <Area type="monotone" dataKey="corrente" name="Corrente (A)" stroke="#10b981" fill="#10b98122" strokeWidth={3} connectNulls />
+                  <Area type="monotone" dataKey="temperatura" name="Temperatura (°C)" stroke="#f59e0b" fill="#f59e0b22" strokeWidth={3} connectNulls />
+                  {selectedEquip.tipo === 'pressao' && (
+                    <Area type="monotone" dataKey="pressao" name="Pressão (kgf)" stroke="#3b82f6" fill="#3b82f622" strokeWidth={3} connectNulls />
+                  )}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-50">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Linha do Tempo de Leituras</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50">
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Horário</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Corrente</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Temp.</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Pressão</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {equipLeituras.slice().reverse().map((l, i) => (
+                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-xs font-medium text-slate-500">
+                        {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
+                        {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
+                        {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
+                        {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.corrente && l.corrente > 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {l.corrente && l.corrente > 0.5 ? 'LIGADO' : 'DESLIGADO'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderReports = () => (
     <div className="space-y-8">
@@ -553,6 +832,31 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Mobile Bottom Nav */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-3 flex justify-around items-center z-50">
+        <button 
+          onClick={() => setView('dashboard')}
+          className={`flex flex-col items-center gap-1 ${view === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`}
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          <span className="text-[10px] font-bold uppercase">Dash</span>
+        </button>
+        <button 
+          onClick={() => setView('equipment')}
+          className={`flex flex-col items-center gap-1 ${view === 'equipment' ? 'text-emerald-600' : 'text-slate-400'}`}
+        >
+          <Settings className="w-5 h-5" />
+          <span className="text-[10px] font-bold uppercase">Ativos</span>
+        </button>
+        <button 
+          onClick={() => setView('reports')}
+          className={`flex flex-col items-center gap-1 ${view === 'reports' ? 'text-emerald-600' : 'text-slate-400'}`}
+        >
+          <FileText className="w-5 h-5" />
+          <span className="text-[10px] font-bold uppercase">Relat.</span>
+        </button>
+      </nav>
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
@@ -578,6 +882,7 @@ export default function App() {
           {view === 'dashboard' && renderDashboard()}
           {view === 'equipment' && renderEquipment()}
           {view === 'reports' && renderReports()}
+          {view === 'equipment-detail' && renderEquipmentDetail()}
         </main>
       </div>
     </div>

@@ -9,11 +9,17 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <time.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // --- CONFIGURAÇÕES DO HARDWARE ---
 const int pinCorrente = 35;    // GPIO35 (SCT-013 ou similar)
-const int pinTemperatura = 18; // GPIO18 (DS18B20 ou DHT)
+const int pinTemperatura = 18; // GPIO18 (DS18B20)
 const int pinPressao = 36;     // GPIO36 (Sensor de Pressão 0-5V)
+
+// Configuração do Sensor de Temperatura DS18B20
+OneWire oneWire(pinTemperatura);
+DallasTemperature sensors(&oneWire);
 
 // --- CONFIGURAÇÕES DE IDENTIFICAÇÃO (Mude para cada equipamento) ---
 String PLACA_ID = "ESP32-001";
@@ -171,17 +177,51 @@ void processarFila() {
   }
 }
 
-// --- LEITURA DE SENSORES (Simulada ou Real) ---
+// --- LEITURA DE SENSORES (Real) ---
+
+float medirCorrenteRMS(int pino) {
+  float voltagem;
+  float corrente;
+  float somaCorrente = 0;
+  long tempoInicio = millis();
+  int contador = 0;
+
+  // Amostragem por 200ms (aprox. 12 ciclos de 60Hz)
+  while (millis() - tempoInicio < 200) {
+    // Lê o valor analógico (0-4095)
+    int leitura = analogRead(pino);
+    
+    // Converte para voltagem (considerando divisor de tensão ou offset de 1.65V para ESP32)
+    // Ajuste o offset conforme seu circuito (geralmente leitura - 2048 para offset de 1.65V)
+    voltagem = (leitura - 2048) * (3.3 / 4095.0);
+    
+    // Corrente = Voltagem * Fator de Calibração (Ex: 30A/1V para SCT-013-030)
+    // Ajuste o fator 30.0 para o seu sensor específico
+    corrente = voltagem * 30.0; 
+    
+    somaCorrente += (corrente * corrente);
+    contador++;
+  }
+
+  float rms = sqrt(somaCorrente / contador);
+  
+  // Filtro de ruído (se for muito baixo, considera 0)
+  if (rms < 0.15) rms = 0;
+  
+  return rms;
+}
+
 float lerCorrente() {
-  // Exemplo de cálculo para SCT-013
-  // float voltagem = (analogRead(pinCorrente) * 3.3) / 4095.0;
-  // return voltagem * fator_calibracao;
-  return 5.0 + (random(-5, 5) / 10.0); // Simulação: 5A estável
+  return medirCorrenteRMS(pinCorrente);
 }
 
 float lerTemperatura() {
-  // Exemplo para sensor analógico ou digital
-  return 25.0 + (random(-10, 10) / 10.0); // Simulação: 25°C estável
+  sensors.requestTemperatures();
+  float temp = sensors.getTempCByIndex(0);
+  
+  // Se o sensor falhar (retorna -127), retorna 0 ou valor anterior
+  if (temp == -127.00) return 0.0;
+  return temp;
 }
 
 float lerPressao() {
@@ -195,6 +235,9 @@ float lerPressao() {
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);
+  
+  // Inicia sensores de temperatura
+  sensors.begin();
   
   if (!LittleFS.begin(true)) {
     Serial.println("Erro ao iniciar LittleFS");
