@@ -26,7 +26,8 @@ import {
   Download,
   Calendar,
   ArrowLeft,
-  Loader2
+  Loader2,
+  Wifi
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -43,10 +44,11 @@ import {
 } from 'recharts';
 import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import ESP32Config from './ESP32Config';
 
 const REFRESH_INTERVAL = 30000;
 
-type View = 'dashboard' | 'equipment' | 'reports' | 'equipment-detail';
+type View = 'dashboard' | 'equipment' | 'reports' | 'equipment-detail' | 'config';
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
@@ -1353,6 +1355,12 @@ export default function App() {
           >
             <FileText className="w-5 h-5" /> Relatórios
           </button>
+          <button 
+            onClick={() => setView('config')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${view === 'config' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-400 hover:bg-slate-50'}`}
+          >
+            <Settings className="w-5 h-5" /> Configurar ESP32
+          </button>
         </nav>
 
         <div className="p-6 border-t border-slate-50">
@@ -1389,6 +1397,13 @@ export default function App() {
           <FileText className="w-5 h-5" />
           <span className="text-[10px] font-bold uppercase">Relat.</span>
         </button>
+        <button 
+          onClick={() => setView('config')}
+          className={`flex flex-col items-center gap-1 ${view === 'config' ? 'text-emerald-600' : 'text-slate-400'}`}
+        >
+          <Wifi className="w-5 h-5" />
+          <span className="text-[10px] font-bold uppercase">Config</span>
+        </button>
       </nav>
 
       {/* Main Content */}
@@ -1396,7 +1411,8 @@ export default function App() {
         <header className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">
             {view === 'dashboard' ? 'Monitoramento em Tempo Real' : 
-             view === 'equipment' ? 'Gestão de Ativos' : 'Análise de Gestão'}
+             view === 'equipment' ? 'Gestão de Ativos' : 
+             view === 'config' ? 'Configuração Local ESP32' : 'Análise de Gestão'}
           </h2>
           <div className="flex items-center gap-6">
             <div className="text-right hidden sm:block">
@@ -1417,6 +1433,7 @@ export default function App() {
           {view === 'equipment' && renderEquipment()}
           {view === 'reports' && renderReports()}
           {view === 'equipment-detail' && renderEquipmentDetail()}
+          {view === 'config' && <ESP32Config onBack={() => setView('dashboard')} />}
         </main>
       </div>
     </div>
