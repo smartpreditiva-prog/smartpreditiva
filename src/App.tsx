@@ -26,8 +26,7 @@ import {
   Download,
   Calendar,
   ArrowLeft,
-  Loader2,
-  Wifi
+  Loader2
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -44,11 +43,10 @@ import {
 } from 'recharts';
 import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import ESP32Config from './ESP32Config';
 
 const REFRESH_INTERVAL = 30000;
 
-type View = 'dashboard' | 'equipment' | 'reports' | 'equipment-detail' | 'config';
+type View = 'dashboard' | 'equipment' | 'reports' | 'equipment-detail';
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
@@ -260,21 +258,14 @@ export default function App() {
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const dataToSave = {
-        ...newEquip,
-        corrente_nominal: isNaN(newEquip.corrente_nominal || 0) ? 0 : (newEquip.corrente_nominal || 0),
-        temperatura_maxima: isNaN(newEquip.temperatura_maxima || 0) ? 0 : (newEquip.temperatura_maxima || 0),
-        pressao_nominal: isNaN(newEquip.pressao_nominal || 0) ? 0 : (newEquip.pressao_nominal || 0),
-      };
-
       if (editingId) {
         const { error } = await supabase
           .from('equipamentos')
-          .update(dataToSave)
+          .update(newEquip)
           .eq('id', editingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('equipamentos').insert([dataToSave]);
+        const { error } = await supabase.from('equipamentos').insert([newEquip]);
         if (error) throw error;
       }
       setIsModalOpen(false);
@@ -370,11 +361,11 @@ export default function App() {
 
   const renderDashboard = () => {
     const totalEquips = equipments.length;
-    const onlineEquips = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => 
+    const onlineEquips = Object.values(equipmentStats).filter(s => 
       s.last && (Math.floor(Date.now() / 1000) - s.last.timestamp < 300)
     ).length;
     const offlineEquips = totalEquips - onlineEquips;
-    const alertsCount = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => {
+    const alertsCount = Object.values(equipmentStats).filter(s => {
       const reading = s.last;
       const config = s.config;
       const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
@@ -882,24 +873,11 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  value={isNaN(newEquip.corrente_nominal as number) ? '' : newEquip.corrente_nominal} 
-                  onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} 
-                  className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" 
-                />
+                <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  value={isNaN(newEquip.temperatura_maxima as number) ? '' : newEquip.temperatura_maxima} 
-                  onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} 
-                  className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" 
-                  placeholder="Ex: 60" 
-                />
+                <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
               </div>
               <div className="md:col-span-2 flex gap-4 mt-4">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -1188,7 +1166,7 @@ export default function App() {
       body: tableData,
       startY: 40,
       theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129] },
+      headStyles: { fillStyle: 'fill', fillColor: [16, 185, 129] },
       styles: { fontSize: 8 }
     });
 
@@ -1355,12 +1333,6 @@ export default function App() {
           >
             <FileText className="w-5 h-5" /> Relatórios
           </button>
-          <button 
-            onClick={() => setView('config')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${view === 'config' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-400 hover:bg-slate-50'}`}
-          >
-            <Settings className="w-5 h-5" /> Configurar ESP32
-          </button>
         </nav>
 
         <div className="p-6 border-t border-slate-50">
@@ -1397,13 +1369,6 @@ export default function App() {
           <FileText className="w-5 h-5" />
           <span className="text-[10px] font-bold uppercase">Relat.</span>
         </button>
-        <button 
-          onClick={() => setView('config')}
-          className={`flex flex-col items-center gap-1 ${view === 'config' ? 'text-emerald-600' : 'text-slate-400'}`}
-        >
-          <Wifi className="w-5 h-5" />
-          <span className="text-[10px] font-bold uppercase">Config</span>
-        </button>
       </nav>
 
       {/* Main Content */}
@@ -1411,8 +1376,7 @@ export default function App() {
         <header className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">
             {view === 'dashboard' ? 'Monitoramento em Tempo Real' : 
-             view === 'equipment' ? 'Gestão de Ativos' : 
-             view === 'config' ? 'Configuração Local ESP32' : 'Análise de Gestão'}
+             view === 'equipment' ? 'Gestão de Ativos' : 'Análise de Gestão'}
           </h2>
           <div className="flex items-center gap-6">
             <div className="text-right hidden sm:block">
@@ -1433,7 +1397,6 @@ export default function App() {
           {view === 'equipment' && renderEquipment()}
           {view === 'reports' && renderReports()}
           {view === 'equipment-detail' && renderEquipmentDetail()}
-          {view === 'config' && <ESP32Config onBack={() => setView('dashboard')} />}
         </main>
       </div>
     </div>
