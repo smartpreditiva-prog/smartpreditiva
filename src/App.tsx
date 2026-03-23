@@ -264,13 +264,19 @@ export default function App() {
     e.preventDefault();
     try {
       if (editingId) {
+        // Remove id from payload to avoid Supabase errors when updating
+        const { id, ...updateData } = newEquip;
+        console.log('Atualizando equipamento:', updateData);
         const { error } = await supabase
           .from('equipamentos')
-          .update(newEquip)
+          .update(updateData)
           .eq('id', editingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('equipamentos').insert([newEquip]);
+        // Ensure id is not present in insert payload
+        const { id, ...insertData } = newEquip;
+        console.log('Inserindo novo equipamento:', insertData);
+        const { error } = await supabase.from('equipamentos').insert([insertData]);
         if (error) throw error;
       }
       setIsModalOpen(false);
@@ -288,11 +294,12 @@ export default function App() {
       });
       fetchData();
     } catch (err: any) {
-      console.error('Erro ao salvar equipamento:', err);
+      console.error('Erro detalhado ao salvar equipamento:', err);
+      const errorMessage = err.message || err.details || JSON.stringify(err);
       if (err.code === '23505') {
-        alert('Erro: O ID da Placa já está cadastrado para outro equipamento.');
+        alert('Erro: O ID da Placa "' + newEquip.nome + '" já está cadastrado para outro equipamento.');
       } else {
-        alert('Erro ao salvar equipamento. Verifique os dados e tente novamente.');
+        alert('Erro ao salvar equipamento: ' + errorMessage);
       }
     }
   };
@@ -820,7 +827,21 @@ export default function App() {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold tracking-tight">Cadastro de Equipamentos</h2>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setEditingId(null);
+            setNewEquip({
+              nome: '',
+              tipo: 'bomba_recalque',
+              condominio: '',
+              localizacao: '',
+              fabricante: '',
+              modelo: '',
+              corrente_nominal: 0,
+              pressao_nominal: 0,
+              temperatura_maxima: 0
+            });
+            setIsModalOpen(true);
+          }}
           className="bg-emerald-500 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-colors"
         >
           <Plus className="w-4 h-4" /> Novo Equipamento
