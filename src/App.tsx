@@ -522,10 +522,10 @@ export default function App() {
                     setView('equipment-detail');
                   } else {
                     setNewEquip({
-                      nome: name,
+                      nome: '',
                       tipo: 'bomba_recalque',
                       condominio: '',
-                      localizacao: '',
+                      localizacao: name,
                       fabricante: '',
                       modelo: '',
                       corrente_nominal: 0,
