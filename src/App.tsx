@@ -71,6 +71,13 @@ export default function App() {
   });
   const [reportData, setReportData] = useState<Leitura[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const formatTimestamp = (ts: number, pattern: string = 'dd/MM HH:mm:ss') => {
+    const time = ts > 1000000000000 ? Math.floor(ts / 1000) : ts;
+    return format(new Date(time * 1000), pattern);
+  };
 
   const allAvailableEquipments = useMemo(() => {
     const registered = equipments.map(e => e.nome);
@@ -162,7 +169,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     fetchData();
@@ -241,8 +248,6 @@ export default function App() {
     return reading.corrente > 0.5; // Threshold for "On"
   };
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [newEquip, setNewEquip] = useState<Partial<Equipment>>({
     nome: '',
     tipo: 'bomba_recalque',
@@ -361,11 +366,11 @@ export default function App() {
 
   const renderDashboard = () => {
     const totalEquips = equipments.length;
-    const onlineEquips = Object.values(equipmentStats).filter(s => 
+    const onlineEquips = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => 
       s.last && (Math.floor(Date.now() / 1000) - s.last.timestamp < 300)
     ).length;
     const offlineEquips = totalEquips - onlineEquips;
-    const alertsCount = Object.values(equipmentStats).filter(s => {
+    const alertsCount = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => {
       const reading = s.last;
       const config = s.config;
       const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
@@ -788,7 +793,7 @@ export default function App() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-xs font-medium text-slate-500">
-                      {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                      {formatTimestamp(l.timestamp)}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
                       {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
@@ -1091,7 +1096,7 @@ export default function App() {
                     equipLeituras.slice().reverse().map((l, i) => (
                       <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 text-xs font-medium text-slate-500">
-                          {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                          {formatTimestamp(l.timestamp)}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
                           {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
@@ -1148,7 +1153,7 @@ export default function App() {
     const tableData = reportData.map(l => {
       const config = equipmentStats[l.equipamento || l.placa_id]?.config;
       return [
-        format(new Date(l.timestamp * 1000), 'dd/MM/yyyy HH:mm'),
+        formatTimestamp(l.timestamp, 'dd/MM/yyyy HH:mm'),
         config?.localizacao || l.equipamento || l.placa_id,
         l.corrente != null ? `${l.corrente.toFixed(2)}A` : '-',
         l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '-',
@@ -1166,7 +1171,7 @@ export default function App() {
       body: tableData,
       startY: 40,
       theme: 'grid',
-      headStyles: { fillStyle: 'fill', fillColor: [16, 185, 129] },
+      headStyles: { fillColor: [16, 185, 129] },
       styles: { fontSize: 8 }
     });
 
@@ -1233,7 +1238,7 @@ export default function App() {
                   return (
                     <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4 text-xs font-medium text-slate-500">
-                        {format(new Date(l.timestamp * 1000), 'dd/MM HH:mm:ss')}
+                        {formatTimestamp(l.timestamp)}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
