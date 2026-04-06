@@ -9,6 +9,7 @@ export interface Equipment {
   corrente_nominal: number;
   pressao_nominal: number;
   temperatura_maxima: number;
+  altura_maxima?: number; // Para reservatórios (cm)
   data_instalacao: string;
 }
 
@@ -23,6 +24,7 @@ export interface Leitura {
   corrente?: number;
   temperatura?: number;
   pressao?: number;
+  nivel?: number; // Nível de água (%) ou distância (cm)
 }
 
-export type EquipmentType = 'bomba_recalque' | 'bomba_piscina' | 'exaustor' | 'pressao';
+export type EquipmentType = 'bomba_recalque' | 'bomba_piscina' | 'exaustor' | 'pressao' | 'reservatorio';

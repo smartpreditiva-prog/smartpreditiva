@@ -104,6 +104,7 @@ export default function App() {
           corrente_nominal: 0,
           pressao_nominal: 0,
           temperatura_maxima: 0,
+          altura_maxima: 0,
           data_instalacao: ''
         });
       }
@@ -257,7 +258,8 @@ export default function App() {
     modelo: '',
     corrente_nominal: 0,
     pressao_nominal: 0,
-    temperatura_maxima: 0
+    temperatura_maxima: 0,
+    altura_maxima: 0
   });
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
@@ -290,7 +292,8 @@ export default function App() {
         modelo: '',
         corrente_nominal: 0,
         pressao_nominal: 0,
-        temperatura_maxima: 0
+        temperatura_maxima: 0,
+        altura_maxima: 0
       });
       fetchData();
     } catch (err: any) {
@@ -530,7 +533,8 @@ export default function App() {
                       modelo: '',
                       corrente_nominal: 0,
                       pressao_nominal: 0,
-                      temperatura_maxima: 0
+                      temperatura_maxima: 0,
+                      altura_maxima: 0
                     });
                     setEditingId(null);
                     setView('equipment');
@@ -539,10 +543,11 @@ export default function App() {
                 }}
               >
                 <div className="flex justify-between items-start mb-4">
-                  <div className={`p-3 rounded-xl ${isOn ? 'bg-emerald-50' : 'bg-slate-50'}`}>
-                    {name.toLowerCase().includes('bomba') ? <Droplets className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> : 
-                     name.toLowerCase().includes('exaustor') ? <Wind className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> :
-                     <Gauge className={isOn ? 'text-emerald-600' : 'text-slate-400'} />}
+                  <div className={`p-3 rounded-xl ${isOn || (config?.tipo === 'reservatorio' && (reading?.nivel ?? 0) > 20) ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    {config?.tipo === 'reservatorio' ? <Droplets className={(reading?.nivel ?? 0) > 20 ? 'text-emerald-600' : 'text-slate-400'} /> :
+                     config?.tipo === 'exaustor' ? <Wind className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> :
+                     config?.tipo === 'pressao' ? <Gauge className={isOn ? 'text-emerald-600' : 'text-slate-400'} /> :
+                     <Droplets className={isOn ? 'text-emerald-600' : 'text-slate-400'} />}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     {!config && (
@@ -556,9 +561,14 @@ export default function App() {
                         {isOnline ? 'Online' : 'Offline'}
                       </span>
                     </div>
-                    {(isOverNominal || isOverTemp) && (
+                    {(isOverNominal || isOverTemp) && config?.tipo !== 'reservatorio' && (
                       <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                         <AlertCircle className="w-2 h-2" /> {isOverNominal ? 'SOBRECARGA' : 'ALTA TEMP.'}
+                      </span>
+                    )}
+                    {config?.tipo === 'reservatorio' && reading?.nivel != null && reading.nivel < 20 && (
+                      <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertCircle className="w-2 h-2" /> NÍVEL BAIXO
                       </span>
                     )}
                   </div>
@@ -571,22 +581,51 @@ export default function App() {
                 
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-black tracking-tighter">
-                    {reading?.corrente != null ? `${reading.corrente.toFixed(1)}A` : 
-                     reading?.pressao != null ? `${reading.pressao.toFixed(2)}kgf` : '--'}
+                    {config?.tipo === 'reservatorio' ? (
+                      reading?.nivel != null ? `${reading.nivel.toFixed(0)}%` : '--%'
+                    ) : (
+                      reading?.corrente != null ? `${reading.corrente.toFixed(1)}A` : 
+                      reading?.pressao != null ? `${reading.pressao.toFixed(2)}kgf` : '--'
+                    )}
                   </span>
-                  {config?.corrente_nominal && reading?.corrente != null && (
-                    <span className="text-[10px] text-slate-400 font-mono">/ {config.corrente_nominal}A nom.</span>
+                  {config?.tipo === 'reservatorio' ? (
+                    <span className="text-[10px] text-slate-400 font-mono">Nível de Água</span>
+                  ) : (
+                    config?.corrente_nominal && reading?.corrente != null && (
+                      <span className="text-[10px] text-slate-400 font-mono">/ {config.corrente_nominal}A nom.</span>
+                    )
                   )}
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
                   <div className="flex items-center gap-2 text-slate-500">
-                    <Thermometer className="w-3.5 h-3.5" />
-                    <span className="text-xs font-medium">{reading?.temperatura != null ? `${reading.temperatura.toFixed(1)}°C` : '--°C'}</span>
+                    {config?.tipo === 'reservatorio' ? (
+                      <>
+                        <Activity className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{reading?.nivel != null ? `${((reading.nivel / 100) * (config.altura_maxima || 0)).toFixed(0)} cm` : '-- cm'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Thermometer className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{reading?.temperatura != null ? `${reading.temperatura.toFixed(1)}°C` : '--°C'}</span>
+                      </>
+                    )}
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {isOn ? 'EM OPERAÇÃO' : 'DESLIGADO'}
-                  </span>
+                  {config?.tipo === 'reservatorio' ? (
+                    <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (reading?.nivel ?? 0) < 20 ? 'bg-rose-500' : 
+                          (reading?.nivel ?? 0) < 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${reading?.nivel ?? 0}%` }}
+                      />
+                    </div>
+                  ) : (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {isOn ? 'EM OPERAÇÃO' : 'DESLIGADO'}
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -883,6 +922,7 @@ export default function App() {
                   <option value="bomba_piscina">Bomba de Piscina</option>
                   <option value="exaustor">Exaustor</option>
                   <option value="pressao">Sensor de Pressão</option>
+                  <option value="reservatorio">Reservatório de Água</option>
                 </select>
               </div>
               <div className="space-y-2">
@@ -897,14 +937,23 @@ export default function App() {
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fabricante</label>
                 <input value={newEquip.fabricante} onChange={e => setNewEquip({...newEquip, fabricante: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Schneider" />
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
-                <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
-                <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
-              </div>
+              {newEquip.tipo === 'reservatorio' ? (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Altura Total do Reservatório (cm)</label>
+                  <input type="number" step="1" value={newEquip.altura_maxima} onChange={e => setNewEquip({...newEquip, altura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 200" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
+                    <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
+                    <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
+                  </div>
+                </>
+              )}
               <div className="md:col-span-2 flex gap-4 mt-4">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors">Cancelar</button>
                 <button type="submit" className="flex-1 bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-colors">Salvar Equipamento</button>
@@ -998,7 +1047,8 @@ export default function App() {
         displayTime,
         corrente: parseVal(l.corrente),
         temperatura: parseVal(l.temperatura),
-        pressao: parseVal(l.pressao)
+        pressao: parseVal(l.pressao),
+        nivel: parseVal(l.nivel)
       };
     });
 
@@ -1027,27 +1077,56 @@ export default function App() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Corrente Atual</p>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black tracking-tighter">{lastReading?.corrente?.toFixed(2) || '0.00'}A</span>
-              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.corrente_nominal}A nom.</span>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Temperatura</p>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black tracking-tighter">{lastReading?.temperatura?.toFixed(1) || '0.0'}°C</span>
-              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.temperatura_maxima}°C máx.</span>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pressão</p>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black tracking-tighter">{lastReading?.pressao?.toFixed(2) || '0.00'}kgf</span>
-              <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.pressao_nominal}kgf nom.</span>
-            </div>
-          </div>
+          {selectedEquip.tipo === 'reservatorio' ? (
+            <>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nível Atual</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black tracking-tighter">{lastReading?.nivel?.toFixed(0) || '0'}%</span>
+                  <span className="text-xs text-slate-400 font-mono">/ 100%</span>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Altura da Água</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black tracking-tighter">{lastReading?.nivel != null ? ((lastReading.nivel / 100) * (selectedEquip.altura_maxima || 0)).toFixed(0) : '0'}cm</span>
+                  <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.altura_maxima}cm total</span>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status do Nível</p>
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-xl font-black tracking-tighter ${(lastReading?.nivel ?? 0) < 20 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                    {(lastReading?.nivel ?? 0) < 20 ? 'NÍVEL BAIXO' : 'NÍVEL OK'}
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Corrente Atual</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black tracking-tighter">{lastReading?.corrente?.toFixed(2) || '0.00'}A</span>
+                  <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.corrente_nominal}A nom.</span>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Temperatura</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black tracking-tighter">{lastReading?.temperatura?.toFixed(1) || '0.0'}°C</span>
+                  <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.temperatura_maxima}°C máx.</span>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pressão</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black tracking-tighter">{lastReading?.pressao?.toFixed(2) || '0.00'}kgf</span>
+                  <span className="text-xs text-slate-400 font-mono">/ {selectedEquip.pressao_nominal}kgf nom.</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-8">
@@ -1078,10 +1157,16 @@ export default function App() {
                   <YAxis fontSize={10} />
                   <Tooltip />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                  <Area type="monotone" dataKey="corrente" name="Corrente (A)" stroke="#10b981" fill="#10b98122" strokeWidth={3} connectNulls />
-                  <Area type="monotone" dataKey="temperatura" name="Temperatura (°C)" stroke="#f59e0b" fill="#f59e0b22" strokeWidth={3} connectNulls />
-                  {selectedEquip.tipo === 'pressao' && (
-                    <Area type="monotone" dataKey="pressao" name="Pressão (kgf)" stroke="#3b82f6" fill="#3b82f622" strokeWidth={3} connectNulls />
+                  {selectedEquip.tipo === 'reservatorio' ? (
+                    <Area type="monotone" dataKey="nivel" name="Nível (%)" stroke="#3b82f6" fill="#3b82f622" strokeWidth={3} connectNulls />
+                  ) : (
+                    <>
+                      <Area type="monotone" dataKey="corrente" name="Corrente (A)" stroke="#10b981" fill="#10b98122" strokeWidth={3} connectNulls />
+                      <Area type="monotone" dataKey="temperatura" name="Temperatura (°C)" stroke="#f59e0b" fill="#f59e0b22" strokeWidth={3} connectNulls />
+                      {selectedEquip.tipo === 'pressao' && (
+                        <Area type="monotone" dataKey="pressao" name="Pressão (kgf)" stroke="#3b82f6" fill="#3b82f622" strokeWidth={3} connectNulls />
+                      )}
+                    </>
                   )}
                 </AreaChart>
               </ResponsiveContainer>
@@ -1097,9 +1182,15 @@ export default function App() {
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Horário</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Corrente</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Temp.</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Pressão</th>
+                    {selectedEquip.tipo === 'reservatorio' ? (
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Nível (%)</th>
+                    ) : (
+                      <>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Corrente</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Temp.</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Pressão</th>
+                      </>
+                    )}
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
                   </tr>
                 </thead>
@@ -1119,19 +1210,33 @@ export default function App() {
                         <td className="px-6 py-4 text-xs font-medium text-slate-500">
                           {formatTimestamp(l.timestamp)}
                         </td>
-                        <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
-                          {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
-                          {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
-                          {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
-                        </td>
+                        {selectedEquip.tipo === 'reservatorio' ? (
+                          <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
+                            {l.nivel != null ? `${l.nivel.toFixed(0)}%` : '--'}
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-6 py-4 text-sm font-bold text-right text-emerald-600">
+                              {l.corrente != null ? `${l.corrente.toFixed(2)}A` : '--'}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-right text-orange-500">
+                              {l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '--'}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-right text-blue-600">
+                              {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '--'}
+                            </td>
+                          </>
+                        )}
                         <td className="px-6 py-4 text-center">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.corrente && l.corrente > 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                            {l.corrente && l.corrente > 0.5 ? 'LIGADO' : 'DESLIGADO'}
-                          </span>
+                          {selectedEquip.tipo === 'reservatorio' ? (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${(l.nivel ?? 0) < 20 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {(l.nivel ?? 0) < 20 ? 'NÍVEL BAIXO' : 'NÍVEL OK'}
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${l.corrente && l.corrente > 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {l.corrente && l.corrente > 0.5 ? 'LIGADO' : 'DESLIGADO'}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -1178,7 +1283,8 @@ export default function App() {
         config?.localizacao || l.equipamento || l.placa_id,
         l.corrente != null ? `${l.corrente.toFixed(2)}A` : '-',
         l.temperatura != null ? `${l.temperatura.toFixed(1)}°C` : '-',
-        l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '-'
+        l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '-',
+        l.nivel != null ? `${l.nivel.toFixed(0)}%` : '-'
       ];
     });
 
@@ -1188,7 +1294,7 @@ export default function App() {
     doc.text(`Período: ${format(new Date(reportRange.start), 'dd/MM/yyyy')} a ${format(new Date(reportRange.end), 'dd/MM/yyyy')}`, 14, 30);
 
     autoTable(doc, {
-      head: [['Data/Hora', 'Equipamento', 'Corrente', 'Temperatura', 'Pressão']],
+      head: [['Data/Hora', 'Equipamento', 'Corrente', 'Temperatura', 'Pressão', 'Nível']],
       body: tableData,
       startY: 40,
       theme: 'grid',
@@ -1251,6 +1357,7 @@ export default function App() {
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Corrente</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Temperatura</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Pressão</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Nível</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -1275,6 +1382,9 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-right text-slate-600">
                         {l.pressao != null ? `${l.pressao.toFixed(2)}kgf` : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-right text-indigo-600">
+                        {l.nivel != null ? `${l.nivel.toFixed(0)}%` : '-'}
                       </td>
                     </tr>
                   );
