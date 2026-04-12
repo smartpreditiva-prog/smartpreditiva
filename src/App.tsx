@@ -365,6 +365,7 @@ export default function App() {
       if (l.corrente != null) dataMap[time][`corrente_${keyId}`] = parseVal(l.corrente);
       if (l.pressao != null) dataMap[time][`pressao_${keyId}`] = parseVal(l.pressao);
       if (l.temperatura != null) dataMap[time][`temperatura_${keyId}`] = parseVal(l.temperatura);
+      if (l.nivel != null) dataMap[time][`nivel_${keyId}`] = parseVal(l.nivel);
     });
 
     const result = Object.values(dataMap).sort((a: any, b: any) => a.timestamp - b.timestamp);
@@ -678,10 +679,10 @@ export default function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Corrente (A)</h3>
-              <div className="h-[300px] relative">
+              <div className="h-[250px] relative">
                 {chartData.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de corrente</p>
@@ -717,7 +718,7 @@ export default function App() {
 
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Temperatura (°C)</h3>
-              <div className="h-[300px] relative">
+              <div className="h-[250px] relative">
                 {chartData.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de temperatura</p>
@@ -753,7 +754,7 @@ export default function App() {
 
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Pressão (kgf/cm²)</h3>
-              <div className="h-[300px] relative">
+              <div className="h-[250px] relative">
                 {chartData.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de pressão</p>
@@ -776,6 +777,42 @@ export default function App() {
                           name={e.localizacao || e.nome}
                           stroke={equipmentColors[(idx + 2) % equipmentColors.length]} 
                           fill={`${equipmentColors[(idx + 2) % equipmentColors.length]}22`} 
+                          strokeWidth={2.5} 
+                          connectNulls
+                          animationDuration={500}
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Nível (%)</h3>
+              <div className="h-[250px] relative">
+                {chartData.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Sem dados de nível</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} syncId="dashboard-charts">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="displayTime" fontSize={10} tick={{ fill: '#94a3b8' }} />
+                      <YAxis fontSize={10} tick={{ fill: '#94a3b8' }} domain={[0, 100]} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '10px' }} />
+                      {allAvailableEquipments.filter(e => (e.tipo === 'reservatorio' || e.tipo === 'desconhecido') && selectedEquipments.includes(e.nome)).map((e, idx) => (
+                        <Area 
+                          key={e.nome} 
+                          type="monotone" 
+                          dataKey={`nivel_${e.nome}`} 
+                          name={e.localizacao || e.nome}
+                          stroke={equipmentColors[(idx + 3) % equipmentColors.length]} 
+                          fill={`${equipmentColors[(idx + 3) % equipmentColors.length]}22`} 
                           strokeWidth={2.5} 
                           connectNulls
                           animationDuration={500}
