@@ -73,6 +73,8 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [idToDelete, setIdToDelete] = useState<string | null>(null);
 
   const formatTimestamp = (ts: number, pattern: string = 'dd/MM HH:mm:ss') => {
     const time = ts > 1000000000000 ? Math.floor(ts / 1000) : ts;
@@ -319,15 +321,31 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteEquipment = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este equipamento?')) return;
+  const handleDeleteEquipment = (id: string) => {
+    setIdToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!idToDelete) return;
     try {
-      const { error } = await supabase.from('equipamentos').delete().eq('id', id);
-      if (error) throw error;
-      fetchData();
-    } catch (err) {
+      const { error } = await supabase.from('equipamentos').delete().eq('id', idToDelete);
+      if (error) {
+        console.error('Erro ao excluir equipamento:', error);
+        if (error.code === '23503') {
+          alert('Não é possível excluir este equipamento pois existem leituras vinculadas a ele no histórico. Para "desvincular" a placa, você pode apenas editar o ID da placa para um valor inexistente ou entrar em contato com o suporte para limpar o histórico.');
+        } else {
+          alert('Erro ao excluir equipamento: ' + error.message);
+        }
+      } else {
+        fetchData();
+      }
+    } catch (err: any) {
       console.error('Erro ao excluir equipamento:', err);
-      alert('Erro ao excluir equipamento.');
+      alert('Erro inesperado ao excluir equipamento.');
+    } finally {
+      setIsDeleteModalOpen(false);
+      setIdToDelete(null);
     }
   };
 
@@ -1028,6 +1046,34 @@ export default function App() {
                 <button type="submit" className="flex-1 bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-colors">Salvar Equipamento</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden p-8 text-center">
+            <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-8 h-8 text-rose-500" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Excluir Equipamento?</h3>
+            <p className="text-sm text-slate-500 mb-8">
+              Esta ação removerá o cadastro do equipamento. Se a placa continuar online, ela aparecerá novamente na lista de "Dispositivos Detectados" para novo cadastro.
+            </p>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)} 
+                className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDelete} 
+                className="flex-1 bg-rose-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-rose-600 transition-colors"
+              >
+                Sim, Excluir
+              </button>
+            </div>
           </div>
         </div>
       )}
