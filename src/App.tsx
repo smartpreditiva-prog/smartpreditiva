@@ -72,6 +72,7 @@ export default function App() {
   const [reportData, setReportData] = useState<Leitura[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
@@ -211,11 +212,6 @@ export default function App() {
       if (!stats[name].last || l.timestamp > (stats[name].last?.timestamp || 0)) {
         stats[name].last = l;
       }
-      
-      // Also store under the raw ID if it's different from the name
-      if (config && config.id !== name) {
-        stats[config.id] = stats[name];
-      }
     });
     
     return stats;
@@ -268,7 +264,9 @@ export default function App() {
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setSaveError(null);
+    setIsSaving(true);
     try {
       if (editingId) {
         // Remove id from payload to avoid Supabase errors when updating
@@ -301,7 +299,7 @@ export default function App() {
         altura_maxima: 0,
         data_instalacao: new Date().toISOString().split('T')[0]
       });
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       console.error('Erro detalhado ao salvar equipamento:', err);
       const errorMessage = err.message || err.details || JSON.stringify(err);
@@ -312,6 +310,8 @@ export default function App() {
       } else {
         setSaveError('Erro ao salvar: ' + errorMessage);
       }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -338,7 +338,9 @@ export default function App() {
           alert('Erro ao excluir equipamento: ' + error.message);
         }
       } else {
-        fetchData();
+        // Update local state immediately for better UX
+        setEquipments(prev => prev.filter(e => e.id !== idToDelete));
+        await fetchData();
       }
     } catch (err: any) {
       console.error('Erro ao excluir equipamento:', err);
@@ -400,12 +402,13 @@ export default function App() {
   const equipmentColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   const renderDashboard = () => {
-    const totalEquips = equipments.length;
-    const onlineEquips = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => 
+    const statsValues = Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[];
+    const totalEquips = Object.keys(equipmentStats).length;
+    const onlineEquips = statsValues.filter(s => 
       s.last && (Math.floor(Date.now() / 1000) - s.last.timestamp < 300)
     ).length;
-    const offlineEquips = totalEquips - onlineEquips;
-    const alertsCount = (Object.values(equipmentStats) as { last?: Leitura, config?: Equipment }[]).filter(s => {
+    const offlineEquips = Math.max(0, totalEquips - onlineEquips);
+    const alertsCount = statsValues.filter(s => {
       const reading = s.last;
       const config = s.config;
       const isOverNominal = reading?.corrente && config?.corrente_nominal ? reading.corrente > config.corrente_nominal * 1.1 : false;
@@ -1043,7 +1046,10 @@ export default function App() {
               )}
               <div className="md:col-span-2 flex gap-4 mt-4">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-50 transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-colors">Salvar Equipamento</button>
+                <button type="submit" disabled={isSaving} className={`flex-1 ${isSaving ? 'bg-slate-300' : 'bg-emerald-500 hover:bg-emerald-600'} text-white px-6 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2`}>
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {isSaving ? 'Salvando...' : 'Salvar Equipamento'}
+                </button>
               </div>
             </form>
           </div>
@@ -1079,13 +1085,13 @@ export default function App() {
       )}
 
       <div className="grid grid-cols-1 gap-4">
-        {allAvailableEquipments.some(e => e.condominio === 'Não Cadastrado') && (
+        {allAvailableEquipments.some(e => !equipments.find(reg => reg.nome === e.nome)) && (
           <div className="space-y-4 mb-8">
             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-500" /> Dispositivos Online Detectados (Não Cadastrados)
             </h3>
             <div className="grid grid-cols-1 gap-4">
-              {allAvailableEquipments.filter(e => e.condominio === 'Não Cadastrado').map(e => (
+              {allAvailableEquipments.filter(e => !equipments.find(reg => reg.nome === e.nome)).map(e => (
                 <div key={e.id} className="bg-emerald-50/30 p-6 rounded-2xl border border-emerald-100 shadow-sm flex flex-col md:flex-row justify-between gap-6">
                   <div className="flex gap-4">
                     <div className="bg-emerald-100 p-4 rounded-2xl h-fit">
