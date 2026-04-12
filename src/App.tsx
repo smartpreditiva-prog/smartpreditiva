@@ -961,7 +961,16 @@ export default function App() {
               )}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID da Placa (CT-XXXX)</label>
-                <input required value={newEquip.nome || ''} onChange={e => setNewEquip({...newEquip, nome: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: CT-0001" />
+                <input 
+                  required 
+                  value={newEquip.nome || ''} 
+                  onChange={e => setNewEquip({...newEquip, nome: e.target.value})} 
+                  className={`w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium ${newEquip.nome ? 'text-emerald-600 ring-1 ring-emerald-100' : ''}`} 
+                  placeholder="Ex: CT-0001" 
+                />
+                <p className="text-[9px] text-slate-400 font-bold leading-tight">
+                  {newEquip.nome ? '✓ Este ID será vinculado às leituras da placa.' : '⚠ Use exatamente o mesmo ID configurado no código do seu ESP32.'}
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo de Equipamento</label>
@@ -1024,6 +1033,56 @@ export default function App() {
       )}
 
       <div className="grid grid-cols-1 gap-4">
+        {allAvailableEquipments.some(e => e.condominio === 'Não Cadastrado') && (
+          <div className="space-y-4 mb-8">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-500" /> Dispositivos Online Detectados (Não Cadastrados)
+            </h3>
+            <div className="grid grid-cols-1 gap-4">
+              {allAvailableEquipments.filter(e => e.condominio === 'Não Cadastrado').map(e => (
+                <div key={e.id} className="bg-emerald-50/30 p-6 rounded-2xl border border-emerald-100 shadow-sm flex flex-col md:flex-row justify-between gap-6">
+                  <div className="flex gap-4">
+                    <div className="bg-emerald-100 p-4 rounded-2xl h-fit">
+                      <RefreshCw className="text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">ID da Placa: {e.nome}</h3>
+                      <p className="text-sm text-emerald-600 font-medium">Sinal detectado - Clique em "Cadastrar" para vincular este ID a um equipamento.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center">
+                    <button 
+                      onClick={() => {
+                        setEditingId(null);
+                        setNewEquip({
+                          nome: e.nome,
+                          tipo: 'bomba_recalque',
+                          condominio: '',
+                          localizacao: '',
+                          fabricante: '',
+                          modelo: '',
+                          corrente_nominal: 0,
+                          pressao_nominal: 0,
+                          temperatura_maxima: 60,
+                          altura_maxima: 0,
+                          data_instalacao: new Date().toISOString().split('T')[0]
+                        });
+                        setIsModalOpen(true);
+                      }}
+                      className="bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-colors flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Cadastrar Equipamento
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+          <CheckCircle2 className="w-4 h-4 text-slate-400" /> Equipamentos Cadastrados
+        </h3>
         {equipments.map(e => (
           <div key={e.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between gap-6">
             <div className="flex gap-4">
