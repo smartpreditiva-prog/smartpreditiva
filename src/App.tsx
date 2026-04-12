@@ -259,11 +259,14 @@ export default function App() {
     corrente_nominal: 0,
     pressao_nominal: 0,
     temperatura_maxima: 0,
-    altura_maxima: 0
+    altura_maxima: 0,
+    data_instalacao: new Date().toISOString().split('T')[0]
   });
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaveError(null);
     try {
       if (editingId) {
         // Remove id from payload to avoid Supabase errors when updating
@@ -293,16 +296,19 @@ export default function App() {
         corrente_nominal: 0,
         pressao_nominal: 0,
         temperatura_maxima: 0,
-        altura_maxima: 0
+        altura_maxima: 0,
+        data_instalacao: new Date().toISOString().split('T')[0]
       });
       fetchData();
     } catch (err: any) {
       console.error('Erro detalhado ao salvar equipamento:', err);
       const errorMessage = err.message || err.details || JSON.stringify(err);
       if (err.code === '23505') {
-        alert('Erro: O ID da Placa "' + newEquip.nome + '" já está cadastrado para outro equipamento.');
+        setSaveError('Erro: O ID da Placa "' + newEquip.nome + '" já está cadastrado.');
+      } else if (err.message?.includes('column "altura_maxima" does not exist')) {
+        setSaveError('Erro: A coluna "altura_maxima" não existe no banco de dados. Por favor, execute o script SQL de atualização.');
       } else {
-        alert('Erro ao salvar equipamento: ' + errorMessage);
+        setSaveError('Erro ao salvar: ' + errorMessage);
       }
     }
   };
@@ -948,13 +954,18 @@ export default function App() {
               </button>
             </div>
             <form onSubmit={handleSaveEquipment} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+              {saveError && (
+                <div className="md:col-span-2 bg-rose-50 border border-rose-100 text-rose-600 p-4 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" /> {saveError}
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID da Placa (CT-XXXX)</label>
-                <input required value={newEquip.nome} onChange={e => setNewEquip({...newEquip, nome: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: CT-0001" />
+                <input required value={newEquip.nome || ''} onChange={e => setNewEquip({...newEquip, nome: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: CT-0001" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo de Equipamento</label>
-                <select value={newEquip.tipo} onChange={e => setNewEquip({...newEquip, tipo: e.target.value as any})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium">
+                <select value={newEquip.tipo || 'bomba_recalque'} onChange={e => setNewEquip({...newEquip, tipo: e.target.value as any})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium">
                   <option value="bomba_recalque">Bomba de Recalque</option>
                   <option value="bomba_piscina">Bomba de Piscina</option>
                   <option value="exaustor">Exaustor</option>
@@ -964,30 +975,42 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Condomínio</label>
-                <input required value={newEquip.condominio} onChange={e => setNewEquip({...newEquip, condominio: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Bonavita" />
+                <input required value={newEquip.condominio || ''} onChange={e => setNewEquip({...newEquip, condominio: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Bonavita" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Localização/Nome</label>
-                <input required value={newEquip.localizacao} onChange={e => setNewEquip({...newEquip, localizacao: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Bomba 01 Subsolo" />
+                <input required value={newEquip.localizacao || ''} onChange={e => setNewEquip({...newEquip, localizacao: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Bomba 01 Subsolo" />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fabricante</label>
-                <input value={newEquip.fabricante} onChange={e => setNewEquip({...newEquip, fabricante: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Schneider" />
+                <input value={newEquip.fabricante || ''} onChange={e => setNewEquip({...newEquip, fabricante: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: Schneider" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Modelo</label>
+                <input value={newEquip.modelo || ''} onChange={e => setNewEquip({...newEquip, modelo: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 5HP" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data de Instalação</label>
+                <input type="date" value={newEquip.data_instalacao || ''} onChange={e => setNewEquip({...newEquip, data_instalacao: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
               </div>
               {newEquip.tipo === 'reservatorio' ? (
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Altura Total do Reservatório (cm)</label>
-                  <input type="number" step="1" value={newEquip.altura_maxima} onChange={e => setNewEquip({...newEquip, altura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 200" />
+                  <input type="number" step="1" value={isNaN(newEquip.altura_maxima as number) ? '' : newEquip.altura_maxima} onChange={e => setNewEquip({...newEquip, altura_maxima: e.target.value === '' ? 0 : parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 200" />
                 </div>
               ) : (
                 <>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Corrente Nominal (A)</label>
-                    <input type="number" step="0.1" value={newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
+                    <input type="number" step="0.1" value={isNaN(newEquip.corrente_nominal as number) ? '' : newEquip.corrente_nominal} onChange={e => setNewEquip({...newEquip, corrente_nominal: e.target.value === '' ? 0 : parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pressão Nominal (kgf/cm²)</label>
+                    <input type="number" step="0.1" value={isNaN(newEquip.pressao_nominal as number) ? '' : newEquip.pressao_nominal} onChange={e => setNewEquip({...newEquip, pressao_nominal: e.target.value === '' ? 0 : parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Temperatura Máxima (°C)</label>
-                    <input type="number" step="0.1" value={newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
+                    <input type="number" step="0.1" value={isNaN(newEquip.temperatura_maxima as number) ? '' : newEquip.temperatura_maxima} onChange={e => setNewEquip({...newEquip, temperatura_maxima: e.target.value === '' ? 0 : parseFloat(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-medium" placeholder="Ex: 60" />
                   </div>
                 </>
               )}
